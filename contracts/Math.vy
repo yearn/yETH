@@ -13,11 +13,12 @@ E20: constant(int256)         = 100 * E18
 MIN_NAT_EXP: constant(int256) = -41 * E18
 MAX_NAT_EXP: constant(int256) = 130 * E18
 
-# 0,1 in 18 decimals, rest in 20 decimals
-X0: constant(int256)  = 128 * E18
-A0: constant(int256)  = 38_877_084_059_945_950_922_200 * E15 * E18
-X1: constant(int256)  = X0 / 2
-A1: constant(int256)  = 6_235_149_080_811_616_882_910 * E6
+# x_n = 2^(7-n), a_n = exp(x_n)
+# in 20 decimals for n >= 2
+X0: constant(int256)  = 128 * E18 # 18 decimals
+A0: constant(int256)  = 38_877_084_059_945_950_922_200 * E15 * E18 # no decimals
+X1: constant(int256)  = X0 / 2 # 18 decimals
+A1: constant(int256)  = 6_235_149_080_811_616_882_910 * E6 # no decimals
 X2: constant(int256)  = X1 * 100 / 2
 A2: constant(int256)  = 7_896_296_018_268_069_516_100 * E12
 X3: constant(int256)  = X2 / 2
@@ -39,7 +40,7 @@ A10: constant(int256) = 11_331_4845_306_682_631_683
 X11: constant(int256) = X10 / 2
 A11: constant(int256) = 1_064_49_445_891_785_942_956
 
-@internal
+@external
 @pure
 def pow(_x: uint256, _y: uint256) -> uint256:
     # x^y
@@ -55,8 +56,6 @@ def pow(_x: uint256, _y: uint256) -> uint256:
     # x^y = e^log(x^y)) = e^(y log x)
     # TODO: ln36
     l: int256 = self._log(convert(_x, int256)) * convert(_y, int256) / E18
-    assert l >= MIN_NAT_EXP and l <= MAX_NAT_EXP
-
     return convert(self._exp(l), uint256)
 
 @external
@@ -64,6 +63,11 @@ def pow(_x: uint256, _y: uint256) -> uint256:
 def ln(a: uint256) -> int256:
     assert a > 0 # dev: out of bounds
     return self._log(convert(a, int256))
+
+@external
+@pure
+def exponent(x: int256) -> int256:
+    return self._exp(x)
 
 @internal
 @pure
@@ -97,39 +101,30 @@ def __log(_a: int256) -> int256:
     if a >= A2:
         a = a * E20 / A2
         s += X2
-
     if a >= A3:
         a = a * E20 / A3
         s += X3
-
     if a >= A4:
         a = a * E20 / A4
         s += X4
-
     if a >= A5:
         a = a * E20 / A5
         s += X5
-
     if a >= A6:
         a = a * E20 / A6
         s += X6
-
     if a >= A7:
         a = a * E20 / A7
         s += X7
-
     if a >= A8:
         a = a * E20 / A8
         s += X8
-
     if a >= A9:
         a = a * E20 / A9
         s += X9
-
     if a >= A10:
         a = a * E20 / A10
         s += X10
-
     if a >= A11:
         a = a * E20 / A11
         s += X11
@@ -139,22 +134,17 @@ def __log(_a: int256) -> int256:
     # c = log a = 2 * sum(z^(2n + 1) / (2n + 1))
     z: int256 = (a - E20) * E20 / (a + E20)
     zsq: int256 = z * z / E20
-    
     n: int256 = z
     c: int256 = z
 
     n = n * zsq / E20
     c += n / 3
-
     n = n * zsq / E20
     c += n / 5
-
     n = n * zsq / E20
     c += n / 7
-
     n = n * zsq / E20
     c += n / 9
-
     n = n * zsq / E20
     c += n / 11
 
@@ -163,6 +153,86 @@ def __log(_a: int256) -> int256:
 
 @internal
 @pure
-def _exp(_a: int256) -> int256:
-    # TODO
-    return 0
+def _exp(_x: int256) -> int256:
+    assert _x >= MIN_NAT_EXP and _x <= MAX_NAT_EXP
+    if _x < 0:
+        # exp(-x) = 1/exp(x)
+        return E18 * E18 / self.__exp(-_x)
+    return self.__exp(_x)
+
+@internal
+@pure
+def __exp(_x: int256) -> int256:
+    # e^x = e^(sum(k_n x_n) + rem)
+    #     = product(e^(k_n x_n)) * e^(rem)
+    #     = product(a_n^k_n) * e^(rem)
+    # k_n = {0,1}, x_n = 2^(7-n), a_n = exp(x_n)
+    x: int256 = _x
+
+    # subtract out x_ns
+    first: int256 = 1
+    if x >= X0:
+        x -= X0
+        first = A0
+    elif x >= X1:
+        x -= X1
+        first = A1
+
+    # other terms are in 20 decimals
+    x *= 100
+
+    prod: int256 = E20
+    if x >= X2:
+        x -= X2
+        prod = prod * A2 / E20
+    if x >= X3:
+        x -= X3
+        prod = prod * A3 / E20
+    if x >= X4:
+        x -= X4
+        prod = prod * A4 / E20
+    if x >= X5:
+        x -= X5
+        prod = prod * A5 / E20
+    if x >= X6:
+        x -= X6
+        prod = prod * A6 / E20
+    if x >= X7:
+        x -= X7
+        prod = prod * A7 / E20
+    if x >= X8:
+        x -= X8
+        prod = prod * A8 / E20
+    if x >= X9:
+        x -= X9
+        prod = prod * A9 / E20
+    
+    # x < X9 (0.25), taylor series for remainder
+    # c = e^x = sum(x^n / n!)
+    n: int256 = x
+    c: int256 = E20 + x
+
+    n = n * x / E20 / 2
+    c += n
+    n = n * x / E20 / 3
+    c += n
+    n = n * x / E20 / 4
+    c += n
+    n = n * x / E20 / 5
+    c += n
+    n = n * x / E20 / 6
+    c += n
+    n = n * x / E20 / 7
+    c += n
+    n = n * x / E20 / 8
+    c += n
+    n = n * x / E20 / 9
+    c += n
+    n = n * x / E20 / 10
+    c += n
+    n = n * x / E20 / 11
+    c += n
+    n = n * x / E20 / 12
+    c += n
+
+    return prod * c / E20 * first / 100
