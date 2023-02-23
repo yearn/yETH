@@ -170,42 +170,42 @@ def __exp(_x: int256) -> int256:
     x: int256 = _x
 
     # subtract out x_ns
-    first: int256 = 1
+    f: int256 = 1
     if x >= X0:
         x -= X0
-        first = A0
+        f = A0
     elif x >= X1:
         x -= X1
-        first = A1
+        f = A1
 
     # other terms are in 20 decimals
     x *= 100
 
-    prod: int256 = E20
+    p: int256 = E20
     if x >= X2:
         x -= X2
-        prod = prod * A2 / E20
+        p = p * A2 / E20
     if x >= X3:
         x -= X3
-        prod = prod * A3 / E20
+        p = p * A3 / E20
     if x >= X4:
         x -= X4
-        prod = prod * A4 / E20
+        p = p * A4 / E20
     if x >= X5:
         x -= X5
-        prod = prod * A5 / E20
+        p = p * A5 / E20
     if x >= X6:
         x -= X6
-        prod = prod * A6 / E20
+        p = p * A6 / E20
     if x >= X7:
         x -= X7
-        prod = prod * A7 / E20
+        p = p * A7 / E20
     if x >= X8:
         x -= X8
-        prod = prod * A8 / E20
+        p = p * A8 / E20
     if x >= X9:
         x -= X9
-        prod = prod * A9 / E20
+        p = p * A9 / E20
     
     # x < X9 (0.25), taylor series for remainder
     # c = e^x = sum(x^n / n!)
@@ -235,4 +235,4 @@ def __exp(_x: int256) -> int256:
     n = n * x / E20 / 12
     c += n
 
-    return prod * c / E20 * first / 100
+    return p * c / E20 * f / 100
