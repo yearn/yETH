@@ -1,0 +1,84 @@
+# yETH protocol specification
+
+### Definitions
+- yETH: token that represents one to one beacon chain ETH
+- staked yETH (st-yETH): yETH that has been deposited into the staking contract. Stakers will effectively receive all yield and slashings from beacon chain
+- Management: trusted with privileged access for limited operations. Should eventually be replaced by a smart contract
+- Guardian: trusted with emergency privileges
+- Whitelister: trusted with privilege to whitelist new assets
+- Treasury: benefactor of performance fees
+
+
+## Pool specification
+### Normal operation
+- Contract contains a set of whitelisted tokens. The assets are non-rebasing and represent different type of LSDs
+- Each asset has a corresponding rate provider: a contract per asset that calculates the amount of beacon chain ETH per token unit
+- Contract keeps track of asset balances as well as the asset's rate
+- The asset balance in the pool multiplied by the rate is called the "virtual balance"
+- Each asset has a weight associated with it, representing the desired share of the total beacon chain ETH in the pool
+- The actual composition of assets in the pool is allowed to fluctuate within a fixed range around the weight
+- Contract keeps track of a variable `D`, representing the pools total virtual balance if it is perfectly balanced
+- The relation between `D`, the virtual balances and the weights is governed by the weighted stableswap invariant
+- If any operation increases or decreases `D`, an equal amount of LP tokens (yETH) will always be minted or burned, respectively. This mechanism ensures the 1:1 peg, because the net yETH the pool has minted (the supply) is always equal to the beacon chain ETH the pool owns in a balanced state. For this reason we call `D` the LP supply
+- Users can deposit any combination of whitelisted assets into the pool. The invariant will be evaluated to determine the new LP supply and an amount of LP tokens equal to the increase in supply is minted to the user
+- Users are able to burn LP tokens to either receive assets in a balanced manner or receive a single asset. The LP supply is reduced by the amount of tokens burned
+- In case of a balanced withdrawal, the user receives a share of every asset in the pool equal to the share of LP tokens burned, i.e. `tokens_received = pool_token_balance * lp_burned / lp_supply` for each whitelisted asset
+- In case of a single sided withdrawal, the invariant is solved (after applying the supply change) to calculate the new virtual balance of the asset. The difference between the new and old virtual balance is divided by the asset's rate to calculate the amount of tokens the user receives
+- Users are able to perform swaps using the pool assets. Like a traditional stableswap pool, this is done by first updating the virtual balance of the input asset and solving the invariant for the new virtual balance of the output asset. The decrease divided by the rate is the amount of output tokens the user receives
+- The pool charges a fee on swaps, in the form of LP tokens minted to the staking contract
+- For safety reasons, any change in asset balances due to a deposit/withdrawal/swap is only accepted if the resulting composition is within a specific tolerance range of the desired composition, or if the change brings it closer to that desired composition
+- The rate of each asset can be synchronised by an internal or external (non-privileged) call, which will in turn call the corresponding rate provider and store the new rate in the contract
+- If a synchronisation changes any rate, the new virtual balances are calculated and the invariant is used to calculate the new LP supply. The change in supply is minted to or burned from the staking contract
+- Any deposit or withdrawal of an asset will be preceded by a sychronisation of its rate
+- Management can start a gradual weight change, as long as no weight change is active yet
+- Management can whitelist a new asset, which sets an initial weight, sets the rate provider and requires an initial deposit
+- Management can update the rate provider for every whitelisted asset
+- Management can update the staking contract
+- Management can set the pool swap fee
+- Management can set the tolerance range
+- Management can modify the weights of all assets
+- Management can set the new management address
+- Guardian can trigger pause mode
+- Management can trigger killed mode
+
+### Pause mode
+_Note_: this mode is to be enabled in the event of extreme market conditions or suspicious LSD minting behaviour or oracle activity.
+- During pause mode, no user may deposit assets into the contract
+- During pause mode, users may only withdraw assets in a balanced manner
+- During pause mode, management can trigger killed mode
+- During pause mode, management or guardian can undo pause mode to resume normal operation
+
+### Killed mode
+_Note:_ this mode is to be activated in the event of a LSD depeg, such as a mint bug or a compromised oracle or a critical bug in the protocol.
+- During killed mode, no user may deposit assets into the contract
+- During killed mode, users may only withdraw assets in a balanced manner
+- During killed mode, the reward controller may not update the beacon chain amounts
+- There is no way to undo killed mode
+
+## LP token contract specification (yETH)
+- ERC20 contract representing beacon chain ETH
+- Management can set and unset addresses that are allowed to mint and burn tokens
+
+## Staking contract specification (st-yETH)
+- Users can deposit yETH to mint shares representing a proportional amount of the underlying asset contained in the staking contract
+- Users can burn shares to receive the underlying asset from the staking contract in proportion to the total number of shares
+- The contract caches its own yETH balance, which is separated in buckets: pending, streaming and unlocked.
+- Before any change in shares, the stored yETH balance is updated
+    - If the balance has increased, it is added to the pending bucket
+    - If the balance has decreased, it is subtracted from the pending bucket until it is empty. If the bucket is empty, the remainder is subtracted from the unlocked bucket
+- At the end of the week, the pending bucket becomes the streaming bucket and a new pending bucket is created
+- The streaming bucket is unlocked linearly during the week
+- User deposits and withdrawals only affect the unlocked bucket
+- Contract keeps track of the user's time weighted balance, which increases linearly weekly until a cap is reached
+- Users can freely transfer their tokens to other users
+- The contract implements ERC20
+- The contract implements ERC4626
+
+### Fees
+- The treasury collects a performance fee on the yield generated by the protocol
+- The performance fees are credited to the treasury in the form of st-yETH shares
+- Management can set the performance fees, within a certain range
+
+## Rate provider specification
+- Contract has a function that returns the asset rate: the amount of beacon chain ETH backing the asset, per unit token
+- Should always return the latest rate and not cache values
