@@ -12,6 +12,8 @@ E18: constant(int256)         = E3 * E15
 E20: constant(int256)         = 100 * E18
 MIN_NAT_EXP: constant(int256) = -41 * E18
 MAX_NAT_EXP: constant(int256) = 130 * E18
+MAX_N: constant(uint256)      = 32
+PRECISION: constant(uint256)  = 1_000_000_000_000_000_000
 
 # x_n = 2^(7-n), a_n = exp(x_n)
 # in 20 decimals for n >= 2
@@ -43,8 +45,12 @@ A11: constant(int256) = 1_064_49_445_891_785_942_956
 @external
 @pure
 def pow(_x: uint256, _y: uint256) -> uint256:
-    # x^y
+    return self._pow(_x, _y)
 
+@internal
+@pure
+def _pow(_x: uint256, _y: uint256) -> uint256:
+    # x^y
     if _y == 0:
         return convert(E18, uint256)
 
@@ -236,3 +242,51 @@ def __exp(_x: int256) -> int256:
     c += n
 
     return p * c / E20 * f / 100
+
+@external
+@pure
+def solve_D(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX_N], _t: uint256) -> (uint256, DynArray[uint256, 255]):
+    n: uint256 = len(_w)
+    assert n == len(_x)
+
+    # D[n+1] = (A w^n sum - D^(n+1)/(w^n prod^n)) / (A w^n - 1)
+    #        = (l - r * D^(n+1)) / d
+    r: uint256 = PRECISION # product(w_i^(w_i n)) = 1/w^n
+    s: uint256 = 0 # sum(x_i)
+    p: uint256 = PRECISION # product(x_i^(w_i n))
+    c: uint256 = 0 # sum(w_i)
+
+    for i in range(MAX_N):
+        if i == len(_w):
+            break
+        wn: uint256 = _w[i] * n
+        r = r * self._pow(_w[i], wn) / PRECISION
+        s += _x[i]
+        p = p * self._pow(_x[i], wn) / PRECISION
+        c += _w[i]
+    assert c == PRECISION
+
+    l: uint256 = _a * PRECISION / r
+    r = r * PRECISION / p
+    d: uint256 = l - PRECISION
+    l = l * s
+
+    v: DynArray[uint256, 255] = []
+
+    for _ in range(255):
+        sp: uint256 = s
+        for i in range(MAX_N):
+            if i == n:
+                break
+            sp = sp * s / PRECISION
+        sp = (l - r * sp) / d
+        if sp >= s:
+            v.append(sp-s)
+            if sp - s <= _t:
+                return sp, v
+        else:
+            v.append(s-sp)
+            if s - sp == _t:
+                return sp, v
+        s = sp
+    return 0, v
