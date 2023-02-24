@@ -20,7 +20,7 @@ balances: public(HashMap[address, uint256]) # x_i r_i
 rates: public(HashMap[address, uint256]) # r_i
 weights: public(HashMap[address, uint256]) # w_i
 
-w_prod: uint256 # inverse weight product: product(w_i^(w_i n))
+w_prod: uint256 # weight product: product(w_i^(w_i n)) = 1/w^n
 vb_prod: uint256 # virtual balance product: product((x_i r_i)^(w_i n))
 vb_sum: uint256 # virtual balance sum: sum(x_i r_i)
 
@@ -92,9 +92,10 @@ def exchange(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver
 @external
 def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: uint256, _receiver: address = msg.sender):
     assert len(_assets) == len(_amounts)
-    self._update_rates(_assets)
+    assert len(_assets) > 0
+    self._update_rates(_assets) # checks that the assets are all whitelisted
 
-    # TODO: fees
+    # TODO: fees for imbalanced deposits
 
     # update supply to account for changes in r/w/A
     prev_supply: uint256 = self._update_supply()
@@ -168,10 +169,8 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
         if rate == prev_rate:
             continue
         self.rates[asset] = rate
-        
-        if vb_prod > 0:
-            ratio: uint256 = self._pow(rate * PRECISION / prev_rate, self.weights[asset] * num_assets)
-            vb_prod = ratio * vb_prod / PRECISION
+        # divde out old rate and multiply by new
+        vb_prod = self._pow(rate * PRECISION / prev_rate, self.weights[asset] * num_assets) * vb_prod / PRECISION
 
     if vb_prod == self.vb_prod:
         return
@@ -238,7 +237,7 @@ def _calc_supply() -> uint256:
         for i in range(MAX_NUM_ASSETS):
             if i == num_assets:
                 break
-            sp = sp * s / PRECISION
+            sp = sp * s / PRECISION # TODO: could overflow for high num of assets
         sp = (l - r * sp) / d
         if sp >= s:
             if sp - s <= 1:
