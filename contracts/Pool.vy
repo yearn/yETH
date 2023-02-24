@@ -64,6 +64,32 @@ X10: constant(int256) = X9 / 2
 A10: constant(int256) = 11_331_4845_306_682_631_683
 X11: constant(int256) = X10 / 2
 A11: constant(int256) = 1_064_49_445_891_785_942_956
+
+@external
+def __init__(
+    _token: address, 
+    _amplification: uint256,
+    _assets: DynArray[address, MAX_NUM_ASSETS], 
+    _rate_providers: DynArray[address, MAX_NUM_ASSETS], 
+    _weights: DynArray[uint256, MAX_NUM_ASSETS]
+):
+    num_assets: uint256 = len(_assets)
+    assert len(_rate_providers) == num_assets and len(_weights) == num_assets
+
+    token = _token
+    self.amplification = _amplification
+    self.num_assets = num_assets
+    
+    for i in range(MAX_NUM_ASSETS):
+        if i == num_assets:
+            break
+        asset: address = _assets[i]
+        self.assets[i] = asset
+        self.rate_providers[asset] = _rate_providers[i]
+        self.weights[asset] = _weights[i]
+        
+
+
 @external
 def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
     # TODO
