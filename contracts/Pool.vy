@@ -9,7 +9,7 @@ interface PoolToken:
     def mint(_account: address, _value: uint256): nonpayable
     def burn(_account: address, _value: uint256): nonpayable
 
-token: public(address)
+token: public(immutable(address))
 supply: public(uint256)
 amplification: public(uint256)
 staking: public(address)
@@ -144,7 +144,7 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
     # mint LP tokens
     mint: uint256 = supply - prev_supply
     assert mint > 0 and mint >= _min_lp_amount # dev: slippage
-    PoolToken(self.token).mint(_receiver, mint)
+    PoolToken(token).mint(_receiver, mint)
 
 @external
 def remove_liquidity():
@@ -187,9 +187,9 @@ def _update_supply() -> uint256:
 
     supply: uint256 = self._calc_supply()
     if supply > prev_supply:
-        PoolToken(self.token).mint(self.staking, supply - prev_supply)
+        PoolToken(token).mint(self.staking, supply - prev_supply)
     else:
-        PoolToken(self.token).burn(self.staking, prev_supply - supply)
+        PoolToken(token).burn(self.staking, prev_supply - supply)
     self.supply = supply
     return supply
 
