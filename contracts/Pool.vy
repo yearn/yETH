@@ -265,9 +265,7 @@ def _calc_supply() -> uint256:
     # D[n+1] = (A w^n sum - D^(n+1)/(w^n prod^n)) / (A w^n - 1)
     #        = (l - r * D^(n+1)) / d
 
-    r: uint256 = self.w_prod
-    l: uint256 = self.amplification * PRECISION / r
-    r = r * PRECISION / self.vb_prod
+    l: uint256 = self.amplification * PRECISION / self.w_prod
     d: uint256 = l - PRECISION
     s: uint256 = self.vb_sum
     l = l * s
@@ -278,8 +276,10 @@ def _calc_supply() -> uint256:
         for i in range(MAX_NUM_ASSETS):
             if i == num_assets:
                 break
-            sp = sp * s / PRECISION # TODO: could overflow
-        sp = (l - r * sp) / d
+            asset: address = self.assets[i]
+            sp = sp * s / self._pow(self.balances[asset] * PRECISION / self.weights[asset] , self.weights[asset] * self.num_assets)
+            # this fixes inaccuracy but is expensive
+        sp = (l - sp * PRECISION) / d
         if sp >= s:
             if sp - s <= 1:
                 return sp

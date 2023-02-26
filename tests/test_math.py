@@ -85,6 +85,14 @@ def test_pow(project, accounts):
         e = abs(b // MAX_ERR_INV)
         assert abs(a - b) <= e
 
+    for _ in range(100):
+        x = random.randrange(E6 * E18, E9 * E18)
+        y = random.randrange(0, 4 * E18)
+        a = int(pow(x / E18, y / E18) * E18)
+        b = math.pow(x, y)
+        e = abs(b // MAX_ERR_INV)
+        assert abs(a - b) <= e
+
 def test_D_2d_equal(project, accounts):
     math = project.Math.deploy(sender=accounts[0])
     
@@ -141,7 +149,7 @@ def test_D_4d_weighted(project, accounts):
     w = [E18*1//10, E18*2//10, E18*3//10, E18*4//10]
     t = 1_000_000 * E18
     x = [t * v // E18 for v in w]
-    s, i = math.solve_D(a, w, x, 1)
-    print(s)
+    s, i, _ = math.solve_D(a, w, x, 1)
+    print(s/E18)
     print(i)
     assert False

@@ -245,7 +245,7 @@ def __exp(_x: int256) -> int256:
 
 @external
 @pure
-def solve_D(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX_N], _t: uint256) -> (uint256, DynArray[uint256, 255]):
+def solve_D(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX_N], _t: uint256) -> (uint256, DynArray[uint256, 255], DynArray[uint256, 255]):
     n: uint256 = len(_w)
     assert n == len(_x)
 
@@ -272,21 +272,24 @@ def solve_D(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX
     l = l * s
 
     v: DynArray[uint256, 255] = []
+    w: DynArray[uint256, 255] = []
 
     for _ in range(255):
         sp: uint256 = s
         for i in range(MAX_N):
-            if i == n:
+            if i == len(_w):
                 break
-            sp = sp * s / PRECISION
-        sp = (l - r * sp) / d
+            sp = sp * s / self._pow(_x[i] * PRECISION / _w[i] , _w[i] * n)
+        sp = (l - sp * PRECISION) / d
         if sp >= s:
+            w.append(sp)
             v.append(sp-s)
             if sp - s <= _t:
-                return sp, v
+                return sp, w, v
         else:
+            w.append(sp)
             v.append(s-sp)
             if s - sp == _t:
-                return sp, v
+                return sp, w, v
         s = sp
-    return 0, v
+    return 0, w, v

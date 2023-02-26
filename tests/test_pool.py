@@ -81,7 +81,8 @@ def test_weighted_balanced_deposit(project, deployer, alice, bob, token):
         asset.mint(alice, amts[i], sender=deployer)
 
     pool.add_liquidity(assets, amts, 0, sender=alice)
-    print(token.balanceOf(alice) / amt - 1)
+    print(token.balanceOf(alice) / PRECISION)
+    # print(token.balanceOf(alice) / amt - 1)
     # assert token.balanceOf(alice) / amt - 1 < 1e-9
 
     amt = PRECISION * 10
