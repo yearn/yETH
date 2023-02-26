@@ -115,18 +115,33 @@ def test_D_2d_weighted(project, accounts):
     assert t == s
     assert len(i) == 1
 
-    # add to the 20% side
+    # add to the 80% side
     # increase in supply should be close to the amount added
     # loss is smaller compared to 50/50 case
     dx = 10 * E18
     x[0] += dx
     sn, i = math.solve_D(a, w, x, 1)
     ds = sn - s
-    assert 1 - ds / dx < 0.0001 # 0.01%
+    loss_80 =  1 - ds / dx
+    assert loss_80 < 0.0001 # 0.01%
 
     # loss is bigger if added to the 20% side
     x[0] -= dx
     x[1] += dx
     sn, i = math.solve_D(a, w, x, 1)
     ds = sn - s
-    assert 1 - ds / dx < 0.0015 # 0.15%
+    loss_20 = 1 - ds / dx
+    assert loss_20 < 0.0015 and loss_20 > loss_80 # 0.15%
+
+
+def test_D_4d_weighted(project, accounts):
+    math = project.Math.deploy(sender=accounts[0])
+
+    a = 10 * E18
+    w = [E18*1//10, E18*2//10, E18*3//10, E18*4//10]
+    t = 1_000_000 * E18
+    x = [t * v // E18 for v in w]
+    s, i = math.solve_D(a, w, x, 1)
+    print(s)
+    print(i)
+    assert False

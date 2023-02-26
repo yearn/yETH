@@ -24,6 +24,8 @@ w_prod: uint256 # weight product: product(w_i^(w_i n)) = 1/w^n
 vb_prod: uint256 # virtual balance product: product((x_i r_i)^(w_i n))
 vb_sum: uint256 # virtual balance sum: sum(x_i r_i)
 
+# TODO: consider overflow of vb_prod and D^(N+1)
+
 PRECISION: constant(uint256) = 1_000_000_000_000_000_000
 MAX_NUM_ASSETS: constant(uint256) = 32
 
@@ -80,15 +82,19 @@ def __init__(
     self.amplification = _amplification
     self.num_assets = num_assets
     
+    weight_sum: uint256 = 0
     for i in range(MAX_NUM_ASSETS):
         if i == num_assets:
             break
         asset: address = _assets[i]
+        assert asset != empty(address)
         self.assets[i] = asset
+        assert _rate_providers[i] != empty(address)
         self.rate_providers[asset] = _rate_providers[i]
+        assert _weights[i] > 0
         self.weights[asset] = _weights[i]
-        
-
+        weight_sum += _weights[i]
+    assert weight_sum == PRECISION
 
 @external
 def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
@@ -116,12 +122,14 @@ def exchange(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver
     return dy
 
 @external
-def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: uint256, _receiver: address = msg.sender):
+@nonreentrant('lock')
+def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: uint256, _receiver: address = msg.sender) -> uint256:
     assert len(_assets) == len(_amounts)
     assert len(_assets) > 0
-    self._update_rates(_assets) # checks that the assets are all whitelisted
+    self._update_rates(_assets) # also checks that the assets are all whitelisted
 
     # TODO: fees for imbalanced deposits
+    # TODO: safety range
 
     # update supply to account for changes in r/w/A
     prev_supply: uint256 = self._update_supply()
@@ -158,7 +166,8 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
         assert ERC20(asset).transferFrom(msg.sender, self, amount, default_return_value=True)
     
     if prev_supply == 0:
-        # initital deposit, calculate product of virtual balances
+        # initital deposit, calculate necessary variables
+        self.w_prod = self._calc_w_prod()
         vb_prod, vb_sum = self._calc_vb_prod_sum()
         assert vb_prod > 0 # dev: amounts must be non-zero
     self.vb_prod = vb_prod
@@ -172,6 +181,8 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
     mint: uint256 = supply - prev_supply
     assert mint > 0 and mint >= _min_lp_amount # dev: slippage
     PoolToken(token).mint(_receiver, mint)
+
+    return mint
 
 @external
 def remove_liquidity():
@@ -192,14 +203,18 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
         assert provider != empty(address) # dev: asset not whitelisted
         prev_rate: uint256 = self.rates[asset]
         rate: uint256 = RateProvider(provider).rate(asset)
+        assert rate > 0
         if rate == prev_rate:
             continue
         self.rates[asset] = rate
-        # divde out old rate and multiply by new
-        vb_prod = self._pow(rate * PRECISION / prev_rate, self.weights[asset] * num_assets) * vb_prod / PRECISION
+
+        if prev_rate > 0:
+            # divde out old rate and multiply by new
+            vb_prod = self._pow(rate * PRECISION / prev_rate, self.weights[asset] * num_assets) * vb_prod / PRECISION
 
     if vb_prod == self.vb_prod:
         return
+
     self.vb_prod = vb_prod
     self._update_supply()
 
@@ -263,7 +278,7 @@ def _calc_supply() -> uint256:
         for i in range(MAX_NUM_ASSETS):
             if i == num_assets:
                 break
-            sp = sp * s / PRECISION # TODO: could overflow for high num of assets
+            sp = sp * s / PRECISION # TODO: could overflow
         sp = (l - r * sp) / d
         if sp >= s:
             if sp - s <= 1:
