@@ -21,10 +21,8 @@ rates: public(HashMap[address, uint256]) # r_i
 weights: public(HashMap[address, uint256]) # w_i
 
 w_prod: uint256 # weight product: product(w_i^(w_i n)) = 1/w^n
-vb_prod: uint256 # virtual balance product: product((x_i r_i)^(w_i n))
+vb_prod: uint256 # virtual balance product: D^n / product((x_i r_i / w_i)^(w_i n))
 vb_sum: uint256 # virtual balance sum: sum(x_i r_i)
-
-# TODO: consider overflow of vb_prod and D^(N+1)
 
 PRECISION: constant(uint256) = 1_000_000_000_000_000_000
 MAX_NUM_ASSETS: constant(uint256) = 32
@@ -90,6 +88,7 @@ def __init__(
         assert asset != empty(address)
         self.assets[i] = asset
         assert _rate_providers[i] != empty(address)
+        assert self.rate_providers[asset] == empty(address)
         self.rate_providers[asset] = _rate_providers[i]
         assert _weights[i] > 0
         self.weights[asset] = _weights[i]
@@ -131,8 +130,7 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
     # TODO: fees for imbalanced deposits
     # TODO: safety range
 
-    # update supply to account for changes in r/w/A
-    prev_supply: uint256 = self._update_supply()
+    prev_supply: uint256 = self.supply
     if prev_supply == 0:
         # initial deposit, must contain all assets
         assert len(_assets) == self.num_assets
@@ -159,7 +157,7 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
             assert asset == self.assets[i]
         else:
             # update product and sum of virtual balances
-            vb_prod = vb_prod * self._pow(bal * PRECISION / prev_bal, self.weights[asset] * num_assets) / PRECISION
+            vb_prod = vb_prod * self._pow(prev_bal * PRECISION / bal, self.weights[asset] * num_assets) / PRECISION
             vb_sum += dbal
             # TODO: check safety range
 
@@ -170,11 +168,13 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
         self.w_prod = self._calc_w_prod()
         vb_prod, vb_sum = self._calc_vb_prod_sum()
         assert vb_prod > 0 # dev: amounts must be non-zero
+        self.supply = vb_sum
     self.vb_prod = vb_prod
     self.vb_sum = vb_sum
 
     # update supply
-    supply: uint256 = self._calc_supply()
+    supply: uint256 = 0
+    supply, self.vb_prod = self._calc_supply()
     self.supply = supply
 
     # mint LP tokens
@@ -209,8 +209,8 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
         self.rates[asset] = rate
 
         if prev_rate > 0:
-            # divde out old rate and multiply by new
-            vb_prod = self._pow(rate * PRECISION / prev_rate, self.weights[asset] * num_assets) * vb_prod / PRECISION
+            # multiply out old rate and divide by new
+            vb_prod = vb_prod * self._pow(prev_rate * PRECISION / rate, self.weights[asset] * num_assets) / PRECISION
 
     if vb_prod == self.vb_prod:
         return
@@ -225,7 +225,8 @@ def _update_supply() -> uint256:
     if prev_supply == 0:
         return 0
 
-    supply: uint256 = self._calc_supply()
+    supply: uint256 = 0
+    supply, self.vb_prod = self._calc_supply()
     if supply > prev_supply:
         PoolToken(token).mint(self.staking, supply - prev_supply)
     else:
@@ -247,45 +248,48 @@ def _calc_w_prod() -> uint256:
 
 @internal
 def _calc_vb_prod_sum() -> (uint256, uint256):
-    prod: uint256 = PRECISION
-    sum: uint256 = 0
+    p: uint256 = PRECISION
+    s: uint256 = 0
+    for asset in self.assets:
+        if asset == empty(address):
+            break
+        s += self.balances[asset]
     num_assets: uint256 = self.num_assets
     for asset in self.assets:
-        bal: uint256 = self.balances[asset]
-        prod = prod * self._pow(bal, self.weights[asset] * num_assets) / PRECISION
-        sum += bal
-    return prod, sum
+        if asset == empty(address):
+            break
+        weight: uint256 = self.weights[asset]
+        p = p * s / self._pow(self.balances[asset] * PRECISION / weight, weight * num_assets)
+    return p, s
 
 @internal
 @view
-def _calc_supply() -> uint256:
+def _calc_supply() -> (uint256, uint256):
     # TODO: weight changes
     # TODO: amplification changes
 
-    # D[n+1] = (A w^n sum - D^(n+1)/(w^n prod^n)) / (A w^n - 1)
-    #        = (l - r * D^(n+1)) / d
+    # s[n+1] = (A w^n sum - s^(n+1)/(w^n prod^n)) / (A w^n - 1)
+    #        = (l - s r) / d
 
     l: uint256 = self.amplification * PRECISION / self.w_prod
     d: uint256 = l - PRECISION
-    s: uint256 = self.vb_sum
-    l = l * s
+    s: uint256 = self.supply
+    r: uint256 = self.vb_prod
+    l = l * self.vb_sum
 
     num_assets: uint256 = self.num_assets
     for _ in range(255):
-        sp: uint256 = s
+        sp: uint256 = (l - s * r) / d
         for i in range(MAX_NUM_ASSETS):
             if i == num_assets:
                 break
-            asset: address = self.assets[i]
-            sp = sp * s / self._pow(self.balances[asset] * PRECISION / self.weights[asset] , self.weights[asset] * self.num_assets)
-            # this fixes inaccuracy but is expensive
-        sp = (l - sp * PRECISION) / d
+            r = r * sp / s
         if sp >= s:
             if sp - s <= 1:
-                return sp
+                return sp, r
         else:
             if s - sp == 1:
-                return sp
+                return sp, r
         s = sp
 
     raise # dev: no convergence
