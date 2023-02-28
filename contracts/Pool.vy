@@ -158,6 +158,7 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
         else:
             # update product and sum of virtual balances
             vb_prod = vb_prod * self._pow(prev_bal * PRECISION / bal, self.weights[asset] * num_assets) / PRECISION
+            # the `D^n` factor will be updated in `_calc_supply()`
             vb_sum += dbal
             # TODO: check safety range
 
@@ -185,10 +186,37 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
     return mint
 
 @external
-def remove_liquidity():
-    pass
+@nonreentrant('lock')
+def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
+    assets: DynArray[address, MAX_NUM_ASSETS] = []
+    for asset in self.assets:
+        if asset == empty(address):
+            break
+        assets.append(asset)
+    self._update_rates(assets)
+
+    # update supply
+    prev_supply: uint256 = self.supply
+    supply: uint256 = prev_supply - _amount
+    self.supply = supply
+    PoolToken(token).burn(msg.sender, _amount)
+
+    vb_prod: uint256 = self.vb_prod
+    vb_sum: uint256 = self.vb_sum
+    num_assets: uint256 = self.num_assets
+    for asset in assets:
+        prev_bal: uint256 = self.balances[asset]
+        dbal: uint256 = prev_bal * _amount / prev_supply
+        bal: uint256 = prev_bal - dbal
+        vb_prod = vb_prod * prev_supply / supply * self._pow(prev_bal * PRECISION / bal, self.weights[asset] * num_assets) / PRECISION
+        vb_sum -= dbal
+        self.balances[asset] = bal
+        assert ERC20(asset).transfer(_receiver, dbal * PRECISION / self.rates[asset], default_return_value=True)
+    self.vb_prod = vb_prod
+    self.vb_sum = vb_sum
 
 @external
+@nonreentrant('lock')
 def remove_liquidity_single():
     pass
 
