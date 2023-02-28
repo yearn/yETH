@@ -96,6 +96,11 @@ def __init__(
     assert weight_sum == PRECISION
 
 @external
+def get_dx(_i: address, _j: address, _dy: uint256) -> uint256:
+    # TODO
+    return 0
+
+@external
 def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
     # TODO
     return 0
@@ -107,17 +112,38 @@ def exchange(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
     self._update_rates(assets)
 
-    # TODO: solve invariant for x_j
     # TODO: check safety range
+    # TODO: fees
 
     self.balances[_i] += _dx * self.rates[_i] / PRECISION
-    dy: uint256 = self.balances[_j] * PRECISION / self.rates[_j] - self._calc_y(_j)
+    dbal: uint256 = self.balances[_j] - self._calc_y(_j)
+    dy: uint256 = dbal * PRECISION / self.rates[_j]
     assert dy >= _min_dy
 
     assert ERC20(_i).transferFrom(msg.sender, self, _dx, default_return_value=True)
     assert ERC20(_j).transfer(_receiver, dy, default_return_value=True)
 
     return dy
+
+@external
+def exchange_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _receiver: address = msg.sender) -> uint256:
+    # update rates for from and to assets
+    # reverts if either is not part of the pool
+    assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
+    self._update_rates(assets)
+
+    # TODO: check safety range
+    # TODO: fees
+
+    self.balances[_j] -= _dy * self.rates[_j] / PRECISION
+    dbal: uint256 = self._calc_y(_i) - self.balances[_i]
+    dx: uint256 = dbal * PRECISION / self.rates[_i]
+    assert dx <= _max_dx
+
+    assert ERC20(_i).transferFrom(msg.sender, self, dx, default_return_value=True)
+    assert ERC20(_j).transfer(_receiver, _dy, default_return_value=True)
+
+    return dx
 
 @external
 @nonreentrant('lock')
@@ -187,6 +213,7 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
 @external
 @nonreentrant('lock')
 def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
+    # update rates
     assets: DynArray[address, MAX_NUM_ASSETS] = []
     for asset in self.assets:
         if asset == empty(address):
@@ -200,6 +227,7 @@ def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
     self.supply = supply
     PoolToken(token).burn(msg.sender, _amount)
 
+    # update necessary variables and transfer assets
     vb_prod: uint256 = self.vb_prod
     vb_sum: uint256 = self.vb_sum
     num_assets: uint256 = self.num_assets
@@ -249,7 +277,7 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
             self.balances[asset] = bal
             vb_sum = vb_sum + bal - prev_bal
 
-    if vb_prod == self.vb_prod:
+    if vb_prod == self.vb_prod and vb_sum == self.vb_sum:
         return
 
     self.vb_prod = vb_prod
