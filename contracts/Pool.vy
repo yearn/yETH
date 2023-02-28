@@ -219,6 +219,10 @@ def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
 def remove_liquidity_single():
     pass
 
+@external
+def update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
+    self._update_rates(_assets)
+
 @internal
 def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
     # TODO: weight changes
