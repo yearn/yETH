@@ -5,7 +5,7 @@ E3 = 1_000
 E6 = E3 * E3
 E9 = E3 * E6
 E18 = E9 * E9
-MAX_ERR_INV = 100_000_000_000_000
+MAX_REL_ERR = 20_000
 
 def test_log(project, accounts):
     math = project.Math.deploy(sender=accounts[0])
@@ -65,33 +65,45 @@ def test_pow(project, accounts):
         x = random.randrange(0, E18)
         y = random.randrange(0, 4 * E18)
         a = int(pow(x / E18, y / E18) * E18)
-        b = math.pow(x, y)
-        e = abs(b // MAX_ERR_INV)
-        assert abs(a - b) <= e
+        b = math.pow_up(x, y)
+        c = math.pow_down(x, y)
+
+        e = (a * MAX_REL_ERR - 1) // E18 + 1
+        assert b >= a and b - a <= e
+        assert c <= a and a - c <= e
 
     for _ in range(100):
         x = random.randrange(E18, E3 * E18)
         y = random.randrange(0, 4 * E18)
         a = int(pow(x / E18, y / E18) * E18)
-        b = math.pow(x, y)
-        e = abs(b // MAX_ERR_INV)
-        assert abs(a - b) <= e
+        b = math.pow_up(x, y)
+        c = math.pow_down(x, y)
+
+        e = (a * MAX_REL_ERR - 1) // E18 + 1
+        assert b >= a and b - a <= e
+        assert c <= a and a - c <= e
 
     for _ in range(100):
         x = random.randrange(E3 * E18, E6 * E18)
         y = random.randrange(0, 4 * E18)
         a = int(pow(x / E18, y / E18) * E18)
-        b = math.pow(x, y)
-        e = abs(b // MAX_ERR_INV)
-        assert abs(a - b) <= e
+        b = math.pow_up(x, y)
+        c = math.pow_down(x, y)
+
+        e = (a * MAX_REL_ERR - 1) // E18 + 1
+        assert b >= a and b - a <= e
+        assert c <= a and a - c <= e
 
     for _ in range(100):
         x = random.randrange(E6 * E18, E9 * E18)
         y = random.randrange(0, 4 * E18)
         a = int(pow(x / E18, y / E18) * E18)
-        b = math.pow(x, y)
-        e = abs(b // MAX_ERR_INV)
-        assert abs(a - b) <= e
+        b = math.pow_up(x, y)
+        c = math.pow_down(x, y)
+
+        e = (a * MAX_REL_ERR - 1) // E18 + 1
+        assert b >= a and b - a <= e
+        assert c <= a and a - c <= e
 
 def test_D_2d_equal(project, accounts):
     math = project.Math.deploy(sender=accounts[0])

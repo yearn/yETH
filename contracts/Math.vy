@@ -12,6 +12,7 @@ E18: constant(int256)         = E3 * E15
 E20: constant(int256)         = 100 * E18
 MIN_NAT_EXP: constant(int256) = -41 * E18
 MAX_NAT_EXP: constant(int256) = 130 * E18
+MAX_POW_REL_ERR: constant(uint256) = 10_000 # 1e-14
 MAX_N: constant(uint256)      = 32
 PRECISION: constant(uint256)  = 1_000_000_000_000_000_000
 
@@ -44,8 +45,24 @@ A11: constant(int256) = 1_064_49_445_891_785_942_956
 
 @external
 @pure
-def pow(_x: uint256, _y: uint256) -> uint256:
-    return self._pow(_x, _y)
+def pow_up(_x: uint256, _y: uint256) -> uint256:
+    # guaranteed to be >= the actual value
+    p: uint256 = self._pow(_x, _y)
+    if p == 0:
+        return 0
+    return p + (p * MAX_POW_REL_ERR - 1) / PRECISION + 1
+
+@external
+@pure
+def pow_down(_x: uint256, _y: uint256) -> uint256:
+    # guaranteed to be <= the actual value
+    p: uint256 = self._pow(_x, _y)
+    if p == 0:
+        return 0
+    e: uint256 = (p * MAX_POW_REL_ERR - 1) / PRECISION + 1
+    if p < e:
+        return 0
+    return p - e
 
 @internal
 @pure
