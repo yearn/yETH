@@ -28,15 +28,16 @@ PRECISION: constant(uint256) = 1_000_000_000_000_000_000
 MAX_NUM_ASSETS: constant(uint256) = 32
 
 # powers of 10
-E3: constant(int256)          = 1_000
-E6: constant(int256)          = E3 * E3
-E9: constant(int256)          = E3 * E6
-E12: constant(int256)         = E3 * E9
-E15: constant(int256)         = E3 * E12
-E18: constant(int256)         = E3 * E15
-E20: constant(int256)         = 100 * E18
-MIN_NAT_EXP: constant(int256) = -41 * E18
-MAX_NAT_EXP: constant(int256) = 130 * E18
+E3: constant(int256)               = 1_000
+E6: constant(int256)               = E3 * E3
+E9: constant(int256)               = E3 * E6
+E12: constant(int256)              = E3 * E9
+E15: constant(int256)              = E3 * E12
+E18: constant(int256)              = E3 * E15
+E20: constant(int256)              = 100 * E18
+MAX_POW_REL_ERR: constant(uint256) = 10_000 # 1e-14
+MIN_NAT_EXP: constant(int256)      = -41 * E18
+MAX_NAT_EXP: constant(int256)      = 130 * E18
 
 # x_n = 2^(7-n), a_n = exp(x_n)
 # in 20 decimals for n >= 2
@@ -182,7 +183,7 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
             assert asset == self.assets[i]
         else:
             # update product and sum of virtual balances
-            vb_prod = vb_prod * self._pow(prev_bal * PRECISION / bal, self.weights[asset] * num_assets) / PRECISION
+            vb_prod = vb_prod * self._pow_up(prev_bal * PRECISION / bal, self.weights[asset] * num_assets) / PRECISION
             # the `D^n` factor will be updated in `_calc_supply()`
             vb_sum += dbal
             # TODO: check safety range
@@ -235,7 +236,7 @@ def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
         prev_bal: uint256 = self.balances[asset]
         dbal: uint256 = prev_bal * _amount / prev_supply
         bal: uint256 = prev_bal - dbal
-        vb_prod = vb_prod * prev_supply / supply * self._pow(prev_bal * PRECISION / bal, self.weights[asset] * num_assets) / PRECISION
+        vb_prod = vb_prod * prev_supply / supply * self._pow_down(prev_bal * PRECISION / bal, self.weights[asset] * num_assets) / PRECISION
         vb_sum -= dbal
         self.balances[asset] = bal
         assert ERC20(asset).transfer(_receiver, dbal * PRECISION / self.rates[asset], default_return_value=True)
@@ -270,7 +271,7 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
 
         if prev_rate > 0:
             # factor out old rate and factor in new
-            vb_prod = vb_prod * self._pow(prev_rate * PRECISION / rate, self.weights[asset] * num_assets) / PRECISION
+            vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, self.weights[asset] * num_assets) / PRECISION
 
             prev_bal: uint256 = self.balances[asset]
             bal: uint256 = prev_bal * rate / prev_rate
@@ -309,7 +310,7 @@ def _calc_w_prod() -> uint256:
     num_assets: uint256 = self.num_assets
     for asset in self.assets:
         weight: uint256 = self.weights[asset]
-        prod = prod * self._pow(weight, weight * num_assets) / PRECISION
+        prod = prod * self._pow_up(weight, weight * num_assets) / PRECISION
     return prod
 
 @internal
@@ -325,7 +326,7 @@ def _calc_vb_prod_sum() -> (uint256, uint256):
         if asset == empty(address):
             break
         weight: uint256 = self.weights[asset]
-        p = p * s / self._pow(self.balances[asset] * PRECISION / weight, weight * num_assets)
+        p = p * s / self._pow_down(self.balances[asset] * PRECISION / weight, weight * num_assets)
     return p, s
 
 @internal
@@ -365,6 +366,27 @@ def _calc_supply() -> (uint256, uint256):
 def _calc_y(_j: address) -> uint256:
     # TODO: solve invariant for x_j
     return PRECISION
+
+@internal
+@pure
+def _pow_up(_x: uint256, _y: uint256) -> uint256:
+    # guaranteed to be >= the actual value
+    p: uint256 = self._pow(_x, _y)
+    if p == 0:
+        return 0
+    return p + (p * MAX_POW_REL_ERR - 1) / PRECISION + 1
+
+@internal
+@pure
+def _pow_down(_x: uint256, _y: uint256) -> uint256:
+    # guaranteed to be <= the actual value
+    p: uint256 = self._pow(_x, _y)
+    if p == 0:
+        return 0
+    e: uint256 = (p * MAX_POW_REL_ERR - 1) / PRECISION + 1
+    if p < e:
+        return 0
+    return p - e
 
 @internal
 @pure

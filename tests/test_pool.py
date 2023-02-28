@@ -40,13 +40,14 @@ def test_equal_balanced_deposit(project, deployer, alice, token):
     pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
     token.set_minter(pool, sender=deployer)
 
-    amt = 100 * PRECISION
+    amt = n * 100 * PRECISION
     for asset in assets:
         asset.approve(pool, MAX, sender=alice)
-        asset.mint(alice, amt, sender=deployer)
+        asset.mint(alice, amt // n, sender=deployer)
 
-    pool.add_liquidity(assets, [amt for _ in range(n)], 0, sender=alice)
-    assert token.balanceOf(alice) == n * amt
+    pool.add_liquidity(assets, [amt // n for _ in range(n)], 0, sender=alice)
+    bal = token.balanceOf(alice)
+    assert bal < amt and (amt - bal) / amt < 1e-16
 
 def test_equal_imbalanced_deposit(project, chain, deployer, alice, bob, token):
     # multiple tokens with equal weights, imbalanced initial deposit
@@ -65,8 +66,9 @@ def test_equal_imbalanced_deposit(project, chain, deployer, alice, bob, token):
         asset.mint(alice, amts[i], sender=deployer)
 
     pool.add_liquidity(assets, amts, 0, sender=alice)
-    assert token.balanceOf(alice) < amt # small penalty
-    assert 1 - token.balanceOf(alice)/amt < 0.0001 # 0.01%
+    bal = token.balanceOf(alice)
+    assert bal < amt # small penalty
+    assert (amt - bal) / amt < 1e-4 # 0.01%
 
     # second deposit that equalizes balances
     amt2 = 200 * PRECISION
@@ -76,11 +78,15 @@ def test_equal_imbalanced_deposit(project, chain, deployer, alice, bob, token):
         asset.approve(pool, MAX, sender=bob)
         asset.mint(bob, amts2[i], sender=deployer)
     pool.add_liquidity(assets, amts2, 0, sender=bob)
-    assert token.balanceOf(bob) > amt2 # small bonus
+    bal2 = token.balanceOf(bob)
+    assert bal2 > amt2 # small bonus
+    assert (bal2 - amt2) / amt2 < 1e-4 # 0.01%
 
     # because pool is now in balance, supply is equal to sum of balances
     amt_sum = amt + amt2
-    assert abs(pool.supply() - amt_sum) < 10
+    supply = pool.supply()
+    assert supply <= amt_sum
+    assert (amt_sum - supply)/amt_sum < 1e-16
 
     vb_prod = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
     vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
@@ -97,10 +103,12 @@ def test_equal_imbalanced_deposit(project, chain, deployer, alice, bob, token):
 
     vb_prod2 = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
     vb_sum2 = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
-    assert abs(vb_prod2 - vb_prod) < 100
+    supply2 = pool.supply()
+    assert abs((vb_prod2 - vb_prod) / vb_prod) < 1e-13
     assert vb_sum == vb_sum2
+    assert abs((supply2 - supply)/supply) < 1e-16
 
-def test_weighted_balanced_deposit(project, deployer, alice, bob, token, networks):
+def test_weighted_balanced_deposit(project, deployer, alice, bob, token):
     # multiple tokens with inequal weights, balanced initial deposit
     amplification = 10 * PRECISION
     n = 4
@@ -109,6 +117,7 @@ def test_weighted_balanced_deposit(project, deployer, alice, bob, token, network
     pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], weights, sender=deployer)
     token.set_minter(pool, sender=deployer)
 
+    # balanced initial deposit
     amt = 1_000_000 * PRECISION
     amts = [amt * w // PRECISION for w in weights]
     for i in range(len(assets)):
@@ -117,13 +126,20 @@ def test_weighted_balanced_deposit(project, deployer, alice, bob, token, network
         asset.mint(alice, amts[i], sender=deployer)
 
     pool.add_liquidity(assets, amts, 0, sender=alice)
-    print(token.balanceOf(alice) / PRECISION)
-    # print(token.balanceOf(alice) / amt - 1)
-    # assert token.balanceOf(alice) / amt - 1 < 1e-9
+    bal = token.balanceOf(alice)
+    assert bal < amt
+    assert (amt - bal) / amt < 1e-16
+    assert pool.supply() == bal
 
-    amt = PRECISION * 10
-    assets[0].approve(pool, MAX, sender=bob)
-    assets[0].mint(bob, amt, sender=deployer)
-    pool.add_liquidity([assets[0]], [amt], 0, sender=bob)
-    print(token.balanceOf(bob)/PRECISION)
-    assert False
+    # balanced second deposit
+    amt =  1000 * PRECISION
+    amts = [amt * w // PRECISION for w in weights]
+    for i in range(len(assets)):
+        asset = assets[i]
+        asset.approve(pool, MAX, sender=bob)
+        asset.mint(bob, amts[i], sender=deployer)
+    pool.add_liquidity(assets, amts, 0, sender=bob)
+
+    bal = token.balanceOf(bob)
+    assert bal < amt
+    assert (amt - bal) / amt < 1e-13
