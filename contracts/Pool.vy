@@ -106,7 +106,6 @@ def exchange(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver
     # reverts if either is not part of the pool
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
     self._update_rates(assets)
-    self._update_supply()
 
     # TODO: solve invariant for x_j
     # TODO: check safety range
@@ -225,6 +224,7 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
     # TODO: weight changes
 
     vb_prod: uint256 = self.vb_prod
+    vb_sum: uint256 = self.vb_sum
     num_assets: uint256 = self.num_assets
     for asset in _assets:
         provider: address = self.rate_providers[asset]
@@ -237,13 +237,19 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
         self.rates[asset] = rate
 
         if prev_rate > 0:
-            # multiply out old rate and divide by new
+            # factor out old rate and factor in new
             vb_prod = vb_prod * self._pow(prev_rate * PRECISION / rate, self.weights[asset] * num_assets) / PRECISION
+
+            prev_bal: uint256 = self.balances[asset]
+            bal: uint256 = prev_bal * rate / prev_rate
+            self.balances[asset] = bal
+            vb_sum = vb_sum + bal - prev_bal
 
     if vb_prod == self.vb_prod:
         return
 
     self.vb_prod = vb_prod
+    self.vb_sum = vb_sum
     self._update_supply()
 
 @internal
