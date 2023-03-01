@@ -32,6 +32,19 @@ def test_log(project, accounts):
         e = abs(b // MAX_REL_ERR)
         assert abs(a - b) <= e
 
+def test_log36(project, accounts):
+    math = project.Math.deploy(sender=accounts[0])
+    random.seed()
+
+    for _ in range(100):
+        x = random.randrange(E18 * 9 // 10, E18 * 11 // 10)
+        y = random.randrange(0, 4 * E18)
+        a = int(log(x / E18) * y)
+        b = math.ln36(x)
+        b = (b // E18 * y + (b % E18) * y // E18) // E18
+        e = abs(b // MAX_REL_ERR)
+        assert abs(a - b) <= e
+
 def test_exp(project, accounts):
     math = project.Math.deploy(sender=accounts[0])
     random.seed()

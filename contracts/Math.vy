@@ -8,10 +8,15 @@ E6: constant(int256)          = E3 * E3
 E9: constant(int256)          = E3 * E6
 E12: constant(int256)         = E3 * E9
 E15: constant(int256)         = E3 * E12
+E17: constant(int256)         = 100 * E15
 E18: constant(int256)         = E3 * E15
-E20: constant(int256)         = 100 * E18
+E20: constant(int256)         = E3 * E17
+E36: constant(int256)         = E18 * E18
 MIN_NAT_EXP: constant(int256) = -41 * E18
 MAX_NAT_EXP: constant(int256) = 130 * E18
+LOG36_LOWER: constant(int256) = E18 - E17
+LOG36_UPPER: constant(int256) = E18 + E17
+MILD_EXPONENT_BOUND: constant(uint256) = 2**254 / E20
 MAX_POW_REL_ERR: constant(uint256) = 10_000 # 1e-14
 MAX_N: constant(uint256)      = 32
 PRECISION: constant(uint256)  = 1_000_000_000_000_000_000
@@ -74,23 +79,70 @@ def _pow(_x: uint256, _y: uint256) -> uint256:
     if _x == 0:
         return 0
     
-    assert shift(_x, -255) == 0 # dev: out of bounds
+    assert shift(_x, -255) == 0 # dev: x out of bounds
+    assert _y < MILD_EXPONENT_BOUND # dev: y out of bounds
 
     # x^y = e^log(x^y)) = e^(y log x)
     # TODO: ln36
-    l: int256 = self._log(convert(_x, int256)) * convert(_y, int256) / E18
+    x: int256 = convert(_x, int256)
+    y: int256= convert(_y, int256)
+    l: int256 = 0
+    if x > LOG36_LOWER and x < LOG36_UPPER:
+        l = self._log36(x)
+        l = l / E18 * y + (l % E18) * y / E18
+    else:
+        l = self._log(x) * y
+    l /= E18
     return convert(self._exp(l), uint256)
 
 @external
 @pure
-def ln(a: uint256) -> int256:
-    assert a > 0 # dev: out of bounds
-    return self._log(convert(a, int256))
+def ln(_a: uint256) -> int256:
+    assert _a > 0 # dev: out of bounds
+    return self._log(convert(_a, int256))
+
+@external
+@pure
+def ln36(_a: uint256) -> int256:
+    a: int256 = convert(_a, int256)
+    assert a > LOG36_LOWER and a < LOG36_UPPER
+    return self._log36(a)
 
 @external
 @pure
 def exponent(x: int256) -> int256:
     return self._exp(x)
+
+@internal
+@pure
+def _log36(_x: int256) -> int256:
+    x: int256 = _x * E18
+    
+    # Taylor series
+    # z = (x - 1) / (x) + 1)
+    # c = log x = 2 * sum(z^(2n + 1) / (2n + 1))
+
+    z: int256 = (x - E36) * E36 / (x + E36)
+    zsq: int256 = z * z / E36
+    n: int256 = z
+    c: int256 = z
+
+    n = n * zsq / E36
+    c += n / 3
+    n = n * zsq / E36
+    c += n / 5
+    n = n * zsq / E36
+    c += n / 7
+    n = n * zsq / E36
+    c += n / 9
+    n = n * zsq / E36
+    c += n / 11
+    n = n * zsq / E36
+    c += n / 13
+    n = n * zsq / E36
+    c += n / 15
+
+    return c * 2
 
 @internal
 @pure
