@@ -3,23 +3,23 @@
 # Adapted from https://github.com/balancer-labs/balancer-v2-monorepo/blob/599b0cd8f744e1eabef3600d79a2c2b0aea3ddcb/pkg/solidity-utils/contracts/math/LogExpMath.sol
 
 # powers of 10
-E3: constant(int256)          = 1_000
-E6: constant(int256)          = E3 * E3
-E9: constant(int256)          = E3 * E6
-E12: constant(int256)         = E3 * E9
-E15: constant(int256)         = E3 * E12
-E17: constant(int256)         = 100 * E15
-E18: constant(int256)         = E3 * E15
-E20: constant(int256)         = E3 * E17
-E36: constant(int256)         = E18 * E18
-MIN_NAT_EXP: constant(int256) = -41 * E18
-MAX_NAT_EXP: constant(int256) = 130 * E18
-LOG36_LOWER: constant(int256) = E18 - E17
-LOG36_UPPER: constant(int256) = E18 + E17
-MILD_EXPONENT_BOUND: constant(uint256) = 2**254 / E20
-MAX_POW_REL_ERR: constant(uint256) = 10_000 # 1e-14
-MAX_N: constant(uint256)      = 32
-PRECISION: constant(uint256)  = 1_000_000_000_000_000_000
+E3: constant(int256)                   = 1_000
+E6: constant(int256)                   = E3 * E3
+E9: constant(int256)                   = E3 * E6
+E12: constant(int256)                  = E3 * E9
+E15: constant(int256)                  = E3 * E12
+E17: constant(int256)                  = 100 * E15
+E18: constant(int256)                  = E3 * E15
+E20: constant(int256)                  = E3 * E17
+E36: constant(int256)                  = E18 * E18
+MIN_NAT_EXP: constant(int256)          = -41 * E18
+MAX_NAT_EXP: constant(int256)          = 130 * E18
+LOG36_LOWER: constant(int256)          = E18 - E17
+LOG36_UPPER: constant(int256)          = E18 + E17
+MILD_EXPONENT_BOUND: constant(uint256) = 2**254 / 100_000_000_000_000_000_000
+MAX_POW_REL_ERR: constant(uint256)     = 10_000 # 1e-14
+MAX_N: constant(uint256)               = 32
+PRECISION: constant(uint256)           = 1_000_000_000_000_000_000
 
 # x_n = 2^(7-n), a_n = exp(x_n)
 # in 20 decimals for n >= 2
@@ -74,10 +74,10 @@ def pow_down(_x: uint256, _y: uint256) -> uint256:
 def _pow(_x: uint256, _y: uint256) -> uint256:
     # x^y
     if _y == 0:
-        return convert(E18, uint256)
+        return convert(E18, uint256) # x^0 == 1
 
     if _x == 0:
-        return 0
+        return 0 # 0^y == 0
     
     assert shift(_x, -255) == 0 # dev: x out of bounds
     assert _y < MILD_EXPONENT_BOUND # dev: y out of bounds
