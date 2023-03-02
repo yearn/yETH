@@ -315,27 +315,26 @@ def __exp(_x: int256) -> int256:
 @pure
 def solve_D(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX_N], _t: uint256) -> (uint256, DynArray[uint256, 255], DynArray[uint256, 255]):
     n: uint256 = len(_w)
-    assert n == len(_x)
+    assert len(_x) == n
 
     # D[n+1] = (A w^n sum - D^(n+1)/(w^n prod^n)) / (A w^n - 1)
-    #        = (l - r * D^(n+1)) / d
-    r: uint256 = PRECISION # product(w_i^(w_i n)) = 1/w^n
+    #        = (l - D prod(D / (x_i / w_i)^(w_i n)))) / d
+    l: uint256 = PRECISION # product(w_i^(w_i n)) = 1/w^n
     s: uint256 = 0 # sum(x_i)
     p: uint256 = PRECISION # product(x_i^(w_i n))
     c: uint256 = 0 # sum(w_i)
 
     for i in range(MAX_N):
-        if i == len(_w):
+        if i == n:
             break
         wn: uint256 = _w[i] * n
-        r = r * self._pow(_w[i], wn) / PRECISION
+        l = l * self._pow(_w[i], wn) / PRECISION
         s += _x[i]
         p = p * self._pow(_x[i], wn) / PRECISION
         c += _w[i]
     assert c == PRECISION
 
-    l: uint256 = _a * PRECISION / r
-    r = r * PRECISION / p
+    l = _a * PRECISION / l
     d: uint256 = l - PRECISION
     l = l * s
 
@@ -361,3 +360,47 @@ def solve_D(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX
                 return sp, w, v
         s = sp
     return 0, w, v
+
+@external
+@pure
+def solve_y(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX_N], _d: uint256, _j: uint256) -> uint256:
+    n: uint256 = len(_w)
+    assert len(_x) == n
+    assert _j < n
+
+    # y = x_j, sum' = sum(x_i, i != j), prod' = prod(x_i^w_i, i != j)
+    # w = product(w_i), v_i = w_i n, f_i = 1/v_i
+    # Iteratively find root of g(y) using Newton's method
+    # g(y) = y^(v_j + 1) + (sum' + (w^n / A - 1) D y^(w_j n) - D^(n+1) w^2n / prod'^n
+    #      = y^(v_j + 1) + b y^(v_j) - c
+    # y[n+1] = y[n] - g(y[n])/g'(y[n])
+    #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / (f_j + 1) y[n] + b)
+
+    w: uint256 = PRECISION
+    b: uint256 = 0
+    c: uint256 = _d
+    for i in range(MAX_N):
+        if i == n:
+            break
+
+        v: uint256 = _w[i] * n
+        w = w * self._pow(_w[i], v) / PRECISION
+        if i == _j:
+            continue
+        b += _x[i]
+        c = c * _d / self._pow(_x[i] * PRECISION / _w[i], v)
+    v: uint256 = _w[_j] * n
+    f: uint256 = PRECISION * PRECISION / v
+    c = c * _d / PRECISION * self._pow(_w[_j], v) / PRECISION * w / PRECISION
+    b = b + + _d * w / _a - _d
+
+    y: uint256 = _x[_j]
+    for _ in range(255):
+        yp: uint256 = (y * y + b * y + c * f / self._pow(y, v) * y - b * f / PRECISION * y) / (f * y / PRECISION + y + b)
+        if yp >= y:
+            if yp - y <= 1:
+                return yp
+        else:
+            if y - yp == 1:
+                return yp
+    return 0
