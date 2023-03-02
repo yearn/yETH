@@ -365,14 +365,14 @@ def solve_D(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX
                 return sp, w, v
         else:
             v.append(s-sp)
-            if s - sp == _t:
+            if s - sp <= _t:
                 return sp, w, v
         s = sp
     return 0, w, v
 
 @external
 @pure
-def solve_y(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX_N], _d: uint256, _j: uint256) -> (uint256, DynArray[uint256, 255], DynArray[uint256, 255]):
+def solve_y(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX_N], _d: uint256, _j: uint256, _t: uint256) -> (uint256, DynArray[uint256, 255], DynArray[uint256, 255]):
     n: uint256 = len(_w)
     assert len(_x) == n
     assert _j < n
@@ -416,11 +416,11 @@ def solve_y(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX
         m.append(yp)
         if yp >= y:
             o.append(yp - y)
-            if yp - y <= 1:
+            if yp - y <= _t:
                 return yp, m, o
         else:
             o.append(y - yp)
-            if y - yp == 1:
+            if y - yp <= _t:
                 return yp, m, o
         y = yp
     return 0, m, o

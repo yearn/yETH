@@ -177,3 +177,20 @@ def test_D_4d_weighted(project, accounts):
     print(s/E18)
     print(i)
     # assert False
+
+def test_y_4d(project, accounts):
+    math = project.Math.deploy(sender=accounts[0])
+
+    n = 4
+    a = 10 * E18
+    w = [E18//n for _ in range(n)]
+    d = 1000 * E18
+    x = [d * v // E18 for v in w]
+    x0 = x[0]
+    x[0] += 10 * E18
+    y, _, _ = math.solve_y(a, w, x, d, 0, 1)
+    assert y < x0
+    assert (x0 - y) / x0 < 1e-16
+    x[0] = y
+    d2, _, _ = math.solve_D(a, w, x, 1)
+    assert (d - d2) / d < 1e-16
