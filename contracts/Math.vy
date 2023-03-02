@@ -51,6 +51,11 @@ A11: constant(int256) = 1_064_49_445_891_785_942_956
 @external
 @pure
 def pow_up(_x: uint256, _y: uint256) -> uint256:
+    return self._pow_up(_x, _y)
+
+@internal
+@pure
+def _pow_up(_x: uint256, _y: uint256) -> uint256:
     # guaranteed to be >= the actual value
     p: uint256 = self._pow(_x, _y)
     if p == 0:
@@ -60,6 +65,11 @@ def pow_up(_x: uint256, _y: uint256) -> uint256:
 @external
 @pure
 def pow_down(_x: uint256, _y: uint256) -> uint256:
+    return self._pow_down(_x, _y)
+
+@internal
+@pure
+def _pow_down(_x: uint256, _y: uint256) -> uint256:
     # guaranteed to be <= the actual value
     p: uint256 = self._pow(_x, _y)
     if p == 0:
@@ -348,13 +358,12 @@ def solve_D(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX
                 break
             sp = sp * s / self._pow(_x[i] * PRECISION / _w[i] , _w[i] * n)
         sp = (l - sp * PRECISION) / d
+        w.append(sp)
         if sp >= s:
-            w.append(sp)
             v.append(sp-s)
             if sp - s <= _t:
                 return sp, w, v
         else:
-            w.append(sp)
             v.append(s-sp)
             if s - sp == _t:
                 return sp, w, v
@@ -363,7 +372,7 @@ def solve_D(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX
 
 @external
 @pure
-def solve_y(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX_N], _d: uint256, _j: uint256) -> uint256:
+def solve_y(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX_N], _d: uint256, _j: uint256) -> (uint256, DynArray[uint256, 255], DynArray[uint256, 255]):
     n: uint256 = len(_w)
     assert len(_x) == n
     assert _j < n
@@ -379,28 +388,39 @@ def solve_y(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX
     w: uint256 = PRECISION
     b: uint256 = 0
     c: uint256 = _d
+    sw: uint256 = 0
     for i in range(MAX_N):
         if i == n:
             break
 
         v: uint256 = _w[i] * n
-        w = w * self._pow(_w[i], v) / PRECISION
+        w = w * self._pow_down(_w[i], v) / PRECISION
+        sw += _w[i]
         if i == _j:
             continue
         b += _x[i]
-        c = c * _d / self._pow(_x[i] * PRECISION / _w[i], v)
+        c = c * _d / self._pow_up(_x[i] * PRECISION / _w[i], v)
+    assert sw == PRECISION
     v: uint256 = _w[_j] * n
     f: uint256 = PRECISION * PRECISION / v
-    c = c * _d / PRECISION * self._pow(_w[_j], v) / PRECISION * w / PRECISION
-    b = b + + _d * w / _a - _d
+    c = c * _d / _a * self._pow_up(_w[_j], v) / PRECISION * w / PRECISION
+    b = b + _d * w / _a
+
+    m: DynArray[uint256, 255] = []
+    o: DynArray[uint256, 255] = []
 
     y: uint256 = _x[_j]
+    m.append(y)
     for _ in range(255):
-        yp: uint256 = (y * y + b * y + c * f / self._pow(y, v) * y - b * f / PRECISION * y) / (f * y / PRECISION + y + b)
+        yp: uint256 = (y + b + _d * f / PRECISION + c * f / self._pow_up(y, v) - b * f / PRECISION - _d) * y / (f * y / PRECISION + y + b - _d)
+        m.append(yp)
         if yp >= y:
+            o.append(yp - y)
             if yp - y <= 1:
-                return yp
+                return yp, m, o
         else:
+            o.append(y - yp)
             if y - yp == 1:
-                return yp
-    return 0
+                return yp, m, o
+        y = yp
+    return 0, m, o
