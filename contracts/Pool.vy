@@ -20,7 +20,7 @@ balances: public(HashMap[address, uint256]) # x_i r_i
 rates: public(HashMap[address, uint256]) # r_i
 weights: public(HashMap[address, uint256]) # w_i
 
-w_prod: uint256 # weight product: product(w_i^(w_i n)) = 1/w^n
+w_prod: uint256 # weight product: product(w_i^(w_i n)) = w^n
 vb_prod: uint256 # virtual balance product: D^n / product((x_i r_i / w_i)^(w_i n))
 vb_sum: uint256 # virtual balance sum: sum(x_i r_i)
 
@@ -112,6 +112,7 @@ def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
     return 0
 
 @external
+@nonreentrant('lock')
 def exchange(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: address = msg.sender) -> uint256:
     # update rates for from and to assets
     # reverts if either is not part of the pool
@@ -121,17 +122,37 @@ def exchange(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver
     # TODO: check safety range
     # TODO: fees
 
-    self.balances[_i] += _dx * self.rates[_i] / PRECISION
-    dbal: uint256 = self.balances[_j] - self._calc_y(_j)
-    dy: uint256 = dbal * PRECISION / self.rates[_j]
+    num_assets: uint256 = self.num_assets
+
+    prev_vbx: uint256 = self.balances[_i]
+    prev_vby: uint256 = self.balances[_j]
+
+    dvbx: uint256 = _dx * self.rates[_i] / PRECISION
+    vbx: uint256 = prev_vbx + dvbx
+    
+    # update x_i and remove x_j from variables
+    self.balances[_i] = vbx
+    vb_prod: uint256 = self.vb_prod * self._pow_up(prev_vby, self.weights[_j] * num_assets) / self._pow_up(vbx * PRECISION / prev_vbx, self.weights[_i] * num_assets)
+    vb_sum: uint256 = self.vb_sum + dvbx - prev_vby
+
+    # calulate new balance of out token
+    vby: uint256 = self._calc_y(_j, vb_prod, vb_sum)
+    dy: uint256 = (prev_vby - vby) * PRECISION / self.rates[_j]
     assert dy >= _min_dy
 
+    # update variables
+    self.balances[_j] = vby
+    self.vb_prod = vb_prod * PRECISION / self._pow_up(vby, self.weights[_j] * num_assets)
+    self.vb_sum = vb_sum + vby
+
+    # transfer tokens
     assert ERC20(_i).transferFrom(msg.sender, self, _dx, default_return_value=True)
     assert ERC20(_j).transfer(_receiver, dy, default_return_value=True)
 
     return dy
 
 @external
+@nonreentrant('lock')
 def exchange_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _receiver: address = msg.sender) -> uint256:
     # update rates for from and to assets
     # reverts if either is not part of the pool
@@ -142,7 +163,8 @@ def exchange_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256,
     # TODO: fees
 
     self.balances[_j] -= _dy * self.rates[_j] / PRECISION
-    dbal: uint256 = self._calc_y(_i) - self.balances[_i]
+    # dbal: uint256 = self._calc_y(_i) - self.balances[_i]
+    dbal: uint256 = 0 # TODO
     dx: uint256 = dbal * PRECISION / self.rates[_i]
     assert dx <= _max_dx
 
@@ -340,7 +362,7 @@ def _calc_supply() -> (uint256, uint256):
     # TODO: weight changes
     # TODO: amplification changes
 
-    # s[n+1] = (A w^n sum - s^(n+1)/(w^n prod^n)) / (A w^n - 1)
+    # s[n+1] = (A sum / w^n - s^(n+1) w^n /prod^n)) / (A w^n - 1)
     #        = (l - s r) / d
 
     l: uint256 = self.amplification * PRECISION / self.w_prod
@@ -368,9 +390,34 @@ def _calc_supply() -> (uint256, uint256):
 
 @internal
 @view
-def _calc_y(_j: address) -> uint256:
-    # TODO: solve invariant for x_j
-    return PRECISION
+def _calc_y(_j: address, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
+    # y = x_j, sum' = sum(x_i, i != j), prod' = prod(x_i^w_i, i != j)
+    # w = product(w_i), v_i = w_i n, f_i = 1/v_i
+    # Iteratively find root of g(y) using Newton's method
+    # g(y) = y^(v_j + 1) + (sum' + (w^n / A - 1) D y^(w_j n) - D^(n+1) w^2n / prod'^n
+    #      = y^(v_j + 1) + b y^(v_j) - c
+    # y[n+1] = y[n] - g(y[n])/g'(y[n])
+    #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / (f_j + 1) y[n] + b)
+
+    d: uint256 = self.supply
+    b: uint256 = d * self.w_prod / self.amplification
+    c: uint256 = _vb_prod * b / PRECISION
+    b += _vb_sum
+    v: uint256 = self.weights[_j] * self.num_assets
+    f: uint256 = PRECISION * PRECISION / v
+
+    y: uint256 = self.balances[_j]
+    for _ in range(255):
+        yp: uint256 = (y + b + d * f / PRECISION + c * f / self._pow_up(y, v) - b * f / PRECISION - d) * y / (f * y / PRECISION + y + b - d)
+        if yp >= y:
+            if yp - y <= 1:
+                return yp
+        else:
+            if y - yp <= 1:
+                return yp
+        y = yp
+    
+    raise # dev: no convergence
 
 @internal
 @pure
