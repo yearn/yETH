@@ -132,7 +132,7 @@ def exchange(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver
     
     # update x_i and remove x_j from variables
     self.balances[_i] = vbx
-    vb_prod: uint256 = self.vb_prod * self._pow_up(prev_vby, self.weights[_j] * num_assets) / self._pow_up(vbx * PRECISION / prev_vbx, self.weights[_i] * num_assets)
+    vb_prod: uint256 = self.vb_prod * self._pow_up(prev_vby, self.weights[_j] * num_assets) / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] * num_assets)
     vb_sum: uint256 = self.vb_sum + dvbx - prev_vby
 
     # calulate new balance of out token
