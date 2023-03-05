@@ -287,8 +287,34 @@ def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
 
 @external
 @nonreentrant('lock')
-def remove_liquidity_single():
-    pass
+def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: address = msg.sender):
+    # update rate
+    assets: DynArray[address, MAX_NUM_ASSETS] = [_asset]
+    self._update_rates(assets)
+
+    # update supply
+    prev_supply: uint256 = self.supply
+    supply: uint256 = prev_supply - _amount
+    self.supply = supply
+    PoolToken(token).burn(msg.sender, _amount)
+
+    weight: uint256 = self.weights[_asset] * self.num_assets
+    prev_vb: uint256 = self.balances[_asset]
+
+    # remove asset from variables
+    vb_prod: uint256 = self.vb_prod * self._pow_up(prev_vb, weight) / PRECISION
+    vb_sum: uint256 = self.vb_sum - prev_vb
+
+    # calculate new balance of asset
+    vb: uint256 = self._calc_vb(_asset, vb_prod, vb_sum)
+    dx: uint256 = (prev_vb - vb) * PRECISION / self.rates[_asset]
+
+    # update variables
+    self.balances[_asset] = vb
+    self.vb_prod = vb_prod * PRECISION / self._pow_up(vb, weight)
+    self.vb_sum = vb_sum + vb
+
+    assert ERC20(_asset).transfer(_receiver, dx, default_return_value=True)
 
 @external
 def update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
