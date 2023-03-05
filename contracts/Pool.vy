@@ -113,7 +113,7 @@ def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
 
 @external
 @nonreentrant('lock')
-def exchange(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: address = msg.sender) -> uint256:
+def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: address = msg.sender) -> uint256:
     # update rates for from and to assets
     # reverts if either is not part of the pool
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
@@ -123,7 +123,6 @@ def exchange(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver
     # TODO: fees
 
     num_assets: uint256 = self.num_assets
-
     prev_vbx: uint256 = self.balances[_i]
     prev_vby: uint256 = self.balances[_j]
 
@@ -136,7 +135,7 @@ def exchange(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver
     vb_sum: uint256 = self.vb_sum + dvbx - prev_vby
 
     # calulate new balance of out token
-    vby: uint256 = self._calc_y(_j, vb_prod, vb_sum)
+    vby: uint256 = self._calc_vb(_j, vb_prod, vb_sum)
     dy: uint256 = (prev_vby - vby) * PRECISION / self.rates[_j]
     assert dy >= _min_dy
 
@@ -153,7 +152,7 @@ def exchange(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver
 
 @external
 @nonreentrant('lock')
-def exchange_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _receiver: address = msg.sender) -> uint256:
+def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _receiver: address = msg.sender) -> uint256:
     # update rates for from and to assets
     # reverts if either is not part of the pool
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
@@ -162,11 +161,27 @@ def exchange_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256,
     # TODO: check safety range
     # TODO: fees
 
-    self.balances[_j] -= _dy * self.rates[_j] / PRECISION
-    # dbal: uint256 = self._calc_y(_i) - self.balances[_i]
-    dbal: uint256 = 0 # TODO
-    dx: uint256 = dbal * PRECISION / self.rates[_i]
+    num_assets: uint256 = self.num_assets
+    prev_vbx: uint256 = self.balances[_i]
+    prev_vby: uint256 = self.balances[_j]
+
+    dvby: uint256 = _dy * self.rates[_j] / PRECISION
+    vby: uint256 = prev_vby - dvby
+
+    # update x_j and remove x_i from variables
+    self.balances[_j] = vby
+    vb_prod: uint256 = self.vb_prod * self._pow_up(prev_vbx, self.weights[_i] * num_assets) / self._pow_down(vby * PRECISION / prev_vby, self.weights[_j] * num_assets)
+    vb_sum: uint256 = self.vb_sum - dvby - prev_vbx
+
+    # calulate new balance of in token
+    vbx: uint256 = self._calc_vb(_i, vb_prod, vb_sum)
+    dx: uint256 = (vbx - prev_vbx) * PRECISION / self.rates[_i]
     assert dx <= _max_dx
+
+    # update variables
+    self.balances[_i] = vbx
+    self.vb_prod = vb_prod * PRECISION / self._pow_up(vbx, self.weights[_i] * num_assets)
+    self.vb_sum = vb_sum + vbx
 
     assert ERC20(_i).transferFrom(msg.sender, self, dx, default_return_value=True)
     assert ERC20(_j).transfer(_receiver, _dy, default_return_value=True)
@@ -390,7 +405,7 @@ def _calc_supply() -> (uint256, uint256):
 
 @internal
 @view
-def _calc_y(_j: address, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
+def _calc_vb(_j: address, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
     # y = x_j, sum' = sum(x_i, i != j), prod' = prod(x_i^w_i, i != j)
     # w = product(w_i), v_i = w_i n, f_i = 1/v_i
     # Iteratively find root of g(y) using Newton's method
