@@ -19,6 +19,7 @@ rate_providers: public(HashMap[address, address])
 balances: public(HashMap[address, uint256]) # x_i r_i
 rates: public(HashMap[address, uint256]) # r_i
 weights: public(HashMap[address, uint256]) # w_i
+management: public(address)
 
 w_prod: uint256 # weight product: product(w_i^(w_i n)) = w^n
 vb_prod: uint256 # virtual balance product: D^n / product((x_i r_i / w_i)^(w_i n))
@@ -100,6 +101,8 @@ def __init__(
         self.weights[asset] = _weights[i]
         weight_sum += _weights[i]
     assert weight_sum == PRECISION
+
+    self.management = msg.sender
 
 @external
 def get_dx(_i: address, _j: address, _dy: uint256) -> uint256:
@@ -320,6 +323,16 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
 def update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
     self._update_rates(_assets)
 
+@external
+def set_staking(_staking: address):
+    assert msg.sender == self.management
+    self.staking = _staking
+
+@external
+def set_management(_management: address):
+    assert msg.sender == self.management
+    self.management = _management
+
 @internal
 def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
     # TODO: weight changes
@@ -332,7 +345,7 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
         assert provider != empty(address) # dev: asset not whitelisted
         prev_rate: uint256 = self.rates[asset]
         rate: uint256 = RateProvider(provider).rate(asset)
-        assert rate > 0
+        assert rate > 0 # dev: no rate
         if rate == prev_rate:
             continue
         self.rates[asset] = rate
