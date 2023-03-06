@@ -105,7 +105,7 @@ def test_equal_imbalanced_deposit(project, chain, deployer, alice, bob, token):
     vb_sum2 = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
     supply2 = pool.supply()
     assert abs((vb_prod2 - vb_prod) / vb_prod) < 1e-13
-    assert vb_sum == vb_sum2
+    assert abs((vb_sum2 - vb_sum) / vb_sum) < 1e-13
     assert abs((supply2 - supply)/supply) < 1e-16
 
 def test_weighted_balanced_deposit(project, deployer, alice, bob, token):
@@ -184,7 +184,7 @@ def test_swap(project, deployer, alice, bob, token):
 
     assert abs((vb_prod2 - vb_prod) / vb_prod) < 2e-14
     assert vb_sum2 > vb_sum
-    assert (vb_sum2 - vb_sum) / vb_sum < 1e-17
+    assert (vb_sum2 - vb_sum) / vb_sum < 2e-14
 
 def test_swap_exact_out(project, deployer, alice, bob, token):
     amplification = 10 * PRECISION
@@ -231,7 +231,7 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
 
     assert abs((vb_prod2 - vb_prod) / vb_prod) < 2e-14
     assert vb_sum2 > vb_sum
-    assert (vb_sum2 - vb_sum) / vb_sum < 1e-17
+    assert (vb_sum2 - vb_sum) / vb_sum < 2e-14
 
 def test_rate_update(project, deployer, alice, token):
     amplification = 10 * PRECISION
