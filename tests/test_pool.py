@@ -232,3 +232,38 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
     assert abs((vb_prod2 - vb_prod) / vb_prod) < 2e-14
     assert vb_sum2 > vb_sum
     assert (vb_sum2 - vb_sum) / vb_sum < 1e-17
+
+def test_rate_update(project, deployer, alice, token):
+    amplification = 10 * PRECISION
+    n = 4
+    assets, provider = deploy_assets(project, deployer, n)
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    pool.set_staking(deployer, sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    # add some liquidity
+    amt = n * 100 * PRECISION
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt // n, sender=deployer)
+    pool.add_liquidity(assets, [amt // n for _ in range(n)], 0, sender=alice)
+
+    # update rate of one asset to 110%
+    provider.set_rate(assets[0], 110 * PRECISION // 100, sender=deployer)
+    pool.update_rates([assets[0]], sender=alice)
+
+    # staking address should have ~10%/4 of token
+    expect = amt / n // 10
+    bal = token.balanceOf(deployer)
+    assert bal < expect
+    assert (expect - bal) / expect < 1e-4 # small penalty because pool is slightly out of balance now
+
+    # adjust rate downwards to 108%
+    provider.set_rate(assets[0], 108 * PRECISION // 100, sender=deployer)
+    pool.update_rates([assets[0]], sender=alice)
+
+    # staking address should now have ~8%/4 of token
+    expect = amt / n * 8 // 100
+    bal = token.balanceOf(deployer)
+    assert bal < expect
+    assert (expect - bal) / expect < 1e-4 # small penalty because pool is still out of balance
