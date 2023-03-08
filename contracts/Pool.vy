@@ -142,14 +142,13 @@ def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: ad
     # reverts if either is not part of the pool
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
     vb_prod, vb_sum = self._update_rates(assets, vb_prod, vb_sum, dx_fee > 0)
-    # TODO: investigate interplay with fee and rate update
 
     # TODO: check safety range
 
     prev_vbx = self.balances[_i]
     prev_vby: uint256 = self.balances[_j]
 
-    dvbx = _dx * self.rates[_i] / PRECISION - dvbx
+    dvbx = (_dx - dx_fee) * self.rates[_i] / PRECISION
     vbx = prev_vbx + dvbx
     
     # update x_i and remove x_j from variables
