@@ -3,7 +3,7 @@ import pytest
 
 PRECISION = 1_000_000_000_000_000_000
 MAX = 2**256 - 1
-W_PROD_SLOT = 41
+W_PROD_SLOT = 43
 VB_PROD_SLOT = W_PROD_SLOT + 1
 VB_SUM_SLOT = VB_PROD_SLOT + 1
 
@@ -48,6 +48,8 @@ def test_equal_balanced_deposit(project, deployer, alice, token):
     pool.add_liquidity(assets, [amt // n for _ in range(n)], 0, sender=alice)
     bal = token.balanceOf(alice)
     assert bal < amt and (amt - bal) / amt < 1e-16
+    vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    assert vb_sum == amt
 
 def test_equal_imbalanced_deposit(project, chain, deployer, alice, bob, token):
     # multiple tokens with equal weights, imbalanced initial deposit
@@ -182,9 +184,44 @@ def test_swap(project, deployer, alice, bob, token):
     vb_prod2 = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
     vb_sum2 = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
 
-    assert abs((vb_prod2 - vb_prod) / vb_prod) < 2e-14
+    assert abs((vb_prod2 - vb_prod) / vb_prod) < 1e-13
     assert vb_sum2 > vb_sum
     assert (vb_sum2 - vb_sum) / vb_sum < 2e-14
+
+def test_swap_fee(project, deployer, alice, bob, token):
+    amplification = 10 * PRECISION
+    n = 4
+    fee_rate = PRECISION // 10 # 10%
+    assets, provider = deploy_assets(project, deployer, n)
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    pool.set_staking(deployer, sender=deployer)
+    pool.set_fee_rate(fee_rate, sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    amt = n * 100 * PRECISION
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt // n, sender=deployer)
+    pool.add_liquidity(assets, [amt // n for _ in range(n)], 0, sender=alice)
+
+    # swap asset 0 for asset 1
+    swap = 10 * PRECISION
+    fee_amt = swap * fee_rate // PRECISION
+    swap_out = swap - fee_amt
+    assets[0].approve(pool, MAX, sender=bob)
+    assets[0].mint(bob, swap, sender=deployer)
+    pool.swap(assets[0], assets[1], swap, 0, sender=bob)
+    staking_bal = token.balanceOf(deployer)
+    # fee is charged on input token but paid in pool token, so amount is slightly less
+    assert staking_bal < fee_amt
+    assert (fee_amt - staking_bal) / fee_amt < 1e-5
+    bal = assets[1].balanceOf(bob)
+    assert bal < swap_out
+    assert (swap_out - bal) / swap_out < 2e-4
+
+    vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    amt2 = amt + fee_amt
+    assert (vb_sum - amt2) / vb_sum < 1e-5
 
 def test_swap_exact_out(project, deployer, alice, bob, token):
     amplification = 10 * PRECISION

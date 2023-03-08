@@ -20,6 +20,7 @@ balances: public(HashMap[address, uint256]) # x_i r_i
 rates: public(HashMap[address, uint256]) # r_i
 weights: public(HashMap[address, uint256]) # w_i
 management: public(address)
+fee_rate: public(uint256)
 
 w_prod: uint256 # weight product: product(w_i^(w_i n)) = w^n
 vb_prod: uint256 # virtual balance product: D^n / product((x_i r_i / w_i)^(w_i n))
@@ -117,20 +118,39 @@ def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
 @external
 @nonreentrant('lock')
 def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: address = msg.sender) -> uint256:
+    assert _i != _j # dev: same input and output asset
+    assert _dx > 0 # dev: zero amount
+    num_assets: uint256 = self.num_assets
+
+    prev_vbx: uint256 = 0
+    dvbx: uint256 = 0
+    vbx: uint256 = 0
+    vb_prod: uint256 = self.vb_prod
+    vb_sum: uint256 = self.vb_sum
+
+    dx_fee: uint256 = _dx * self.fee_rate / PRECISION
+    if dx_fee > 0:
+        # add fee to pool
+        prev_vbx = self.balances[_i]
+        dvbx = dx_fee * self.rates[_i] / PRECISION
+        vbx = prev_vbx + dvbx
+        self.balances[_i] = vbx
+        vb_prod = vb_prod * PRECISION / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] * num_assets)
+        vb_sum += dvbx
+
     # update rates for from and to assets
     # reverts if either is not part of the pool
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
-    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, False)
+    vb_prod, vb_sum = self._update_rates(assets, vb_prod, vb_sum, dx_fee > 0)
+    # TODO: investigate interplay with fee and rate update
 
     # TODO: check safety range
-    # TODO: fees
 
-    num_assets: uint256 = self.num_assets
-    prev_vbx: uint256 = self.balances[_i]
+    prev_vbx = self.balances[_i]
     prev_vby: uint256 = self.balances[_j]
 
-    dvbx: uint256 = _dx * self.rates[_i] / PRECISION
-    vbx: uint256 = prev_vbx + dvbx
+    dvbx = _dx * self.rates[_i] / PRECISION - dvbx
+    vbx = prev_vbx + dvbx
     
     # update x_i and remove x_j from variables
     self.balances[_i] = vbx
@@ -330,6 +350,12 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
 @external
 def update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
     self.vb_prod, self.vb_sum = self._update_rates(_assets, self.vb_prod, self.vb_sum, False)
+
+@external
+def set_fee_rate(_fee_rate: uint256):
+    assert msg.sender == self.management
+    # TODO: reasonable bounds
+    self.fee_rate = _fee_rate
 
 @external
 def set_staking(_staking: address):
