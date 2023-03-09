@@ -270,6 +270,58 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
     assert vb_sum2 > vb_sum
     assert (vb_sum2 - vb_sum) / vb_sum < 2e-14
 
+def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
+    amplification = 10 * PRECISION
+    n = 4
+    fee_rate = PRECISION // 10 # 10%
+    assets, provider = deploy_assets(project, deployer, n)
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    amt = n * 100 * PRECISION
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt // n, sender=deployer)
+    pool.add_liquidity(assets, [amt // n for _ in range(n)], 0, sender=alice)
+
+    # swap without a fee
+    swap = 10 * PRECISION
+    assets[0].approve(pool, MAX, sender=bob)
+    assets[0].mint(bob, 2 * swap, sender=deployer)
+    id = chain.snapshot()
+    pool.swap_exact_out(assets[0], assets[1], swap, MAX, sender=bob)
+    base_amt = 2 * swap - assets[0].balanceOf(bob)
+    exp_fee_amt = base_amt * PRECISION // (PRECISION - fee_rate) - base_amt
+
+    # add liquidity equal to expected fee
+    pool.add_liquidity([assets[0]], [exp_fee_amt], 0, sender=bob)
+    exp_staking_bal = token.balanceOf(bob)
+
+    vb_prod = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
+    vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+
+    # swap with fee
+    chain.restore(id)
+    pool.set_staking(deployer, sender=deployer)
+    pool.set_fee_rate(fee_rate, sender=deployer)
+
+    pool.swap_exact_out(assets[0], assets[1], swap, MAX, sender=bob)
+    amt = 2 * swap - assets[0].balanceOf(bob)
+    fee_amt = amt - base_amt
+    assert fee_amt == exp_fee_amt
+    
+    staking_bal = token.balanceOf(deployer)
+    assert abs(staking_bal - exp_staking_bal) / exp_staking_bal < 1e-14
+
+    # fee is charged on input token but paid in pool token, so amount is slightly less
+    assert staking_bal < fee_amt
+    assert (fee_amt - staking_bal) / fee_amt < 2e-4
+
+    vb_prod2 = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
+    vb_sum2 = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    assert abs(vb_prod2 - vb_prod) / vb_prod < 1e-14
+    assert vb_sum == vb_sum2
+
 def test_rate_update(project, deployer, alice, token):
     amplification = 10 * PRECISION
     n = 4

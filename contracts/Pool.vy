@@ -137,6 +137,7 @@ def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: ad
         self.balances[_i] = vbx
         vb_prod = vb_prod * PRECISION / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] * num_assets)
         vb_sum += dvbx
+    # TODO: consider adding fee after swap
 
     # update rates for from and to assets
     # reverts if either is not part of the pool
@@ -200,12 +201,23 @@ def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _re
     # calulate new balance of in token
     vbx: uint256 = self._calc_vb(_i, vb_prod, vb_sum)
     dx: uint256 = (vbx - prev_vbx) * PRECISION / self.rates[_i]
+    dx_fee: uint256 = self.fee_rate
+    dx_fee = dx * dx_fee / (PRECISION - dx_fee)
+    dx += dx_fee
+    vbx += dx_fee * self.rates[_i] / PRECISION
     assert dx <= _max_dx
 
     # update variables
     self.balances[_i] = vbx
-    self.vb_prod = vb_prod * PRECISION / self._pow_up(vbx, self.weights[_i] * num_assets)
-    self.vb_sum = vb_sum + vbx
+    vb_prod = vb_prod * PRECISION / self._pow_up(vbx, self.weights[_i] * num_assets)
+    vb_sum += vbx
+
+    if dx_fee > 0:
+        supply: uint256 = 0
+        supply, vb_prod = self._update_supply(vb_prod, vb_sum)
+
+    self.vb_prod = vb_prod
+    self.vb_sum = vb_sum
 
     assert ERC20(_i).transferFrom(msg.sender, self, dx, default_return_value=True)
     assert ERC20(_j).transfer(_receiver, _dy, default_return_value=True)
