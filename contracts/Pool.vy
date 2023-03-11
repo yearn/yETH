@@ -372,8 +372,13 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
     weight: uint256 = self.weights[_asset] * self.num_assets
     prev_vb: uint256 = self.balances[_asset]
 
-    # remove asset from variables
+    # update variables
+    num_assets: uint256 = self.num_assets
     vb_prod = vb_prod * self._pow_up(prev_vb, weight) / PRECISION
+    for i in range(MAX_NUM_ASSETS):
+        if i == num_assets:
+            break
+        vb_prod = vb_prod * supply / prev_supply
     vb_sum = vb_sum - prev_vb
 
     # calculate new balance of asset

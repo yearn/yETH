@@ -79,6 +79,40 @@ def test_equal_balanced_deposit_fee(project, deployer, alice, bob, token):
     assert (bal - 10 * token.balanceOf(bob)) / bal < 1e-15
     assert token.balanceOf(deployer) == 0
 
+def test_withdraw_single(project, deployer, alice, bob, token):
+    amplification = 10 * PRECISION
+    n = 4
+    assets, provider = deploy_assets(project, deployer, n)
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    amt = n * 100 * PRECISION
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt // n, sender=deployer)
+
+    pool.add_liquidity([amt // n for _ in range(n)], 0, sender=alice)
+    vb_prod = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
+    vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+
+    # add single sided liquidity
+    amt = amt // n // 10
+    assets[0].approve(pool, MAX, sender=bob)
+    assets[0].mint(bob, amt, sender=bob)
+    pool.add_liquidity([amt if i == 0 else 0 for i in range(n)], 0, sender=bob)
+
+    # remove single sided liquidity
+    pool.remove_liquidity_single(assets[0], token.balanceOf(bob), sender=bob)
+    vb_prod2 = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
+    vb_sum2 = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+
+    bal = assets[0].balanceOf(bob)
+    assert amt > bal
+    assert (amt - bal) / amt < 2e-16
+
+    assert abs(vb_sum2 - vb_sum) / vb_sum < 1e-17
+    assert abs(vb_prod2 - vb_prod) / vb_prod < 1e-14
+
 def test_equal_imbalanced_deposit(project, chain, deployer, alice, bob, token):
     # multiple tokens with equal weights, imbalanced initial deposit
     amplification = 10 * PRECISION
