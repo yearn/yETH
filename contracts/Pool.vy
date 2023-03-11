@@ -82,6 +82,7 @@ def __init__(
     _weights: DynArray[uint256, MAX_NUM_ASSETS]
 ):
     num_assets: uint256 = len(_assets)
+    assert num_assets > 0
     assert len(_rate_providers) == num_assets and len(_weights) == num_assets
 
     token = _token
@@ -142,7 +143,7 @@ def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: ad
     # update rates for from and to assets
     # reverts if either is not part of the pool
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
-    vb_prod, vb_sum = self._update_rates(assets, vb_prod, vb_sum, dx_fee > 0)
+    vb_prod, vb_sum = self._update_rates(assets, 3, vb_prod, vb_sum, dx_fee > 0)
 
     # TODO: check safety range
 
@@ -181,7 +182,7 @@ def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _re
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
-    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, False)
+    vb_prod, vb_sum = self._update_rates(assets, 3, self.vb_prod, self.vb_sum, False)
 
     # TODO: check safety range
     # TODO: fees
@@ -214,7 +215,7 @@ def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _re
 
     if dx_fee > 0:
         supply: uint256 = 0
-        supply, vb_prod = self._update_supply(vb_prod, vb_sum)
+        supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
 
     self.vb_prod = vb_prod
     self.vb_sum = vb_sum
@@ -226,32 +227,47 @@ def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _re
 
 @external
 @nonreentrant('lock')
-def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: uint256, _receiver: address = msg.sender) -> uint256:
-    assert len(_assets) == len(_amounts)
-    assert len(_assets) > 0
-    
-    # update rates
-    # reverts if any asset is not part of the pool
-    vb_prod: uint256 = 0
-    vb_sum: uint256 = 0
-    vb_prod, vb_sum = self._update_rates(_assets, self.vb_prod, self.vb_sum, False)
-
-    # TODO: fees for imbalanced deposits
-    # TODO: safety range
-
-    prev_supply: uint256 = self.supply
-    if prev_supply == 0:
-        # initial deposit, must contain all assets
-        assert len(_assets) == self.num_assets
-
+def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: uint256, _receiver: address = msg.sender) -> uint256:
     num_assets: uint256 = self.num_assets
+    assert len(_amounts) == num_assets
+
+    vb_prod: uint256 = self.vb_prod
+    vb_sum: uint256 = self.vb_sum
+
+    assets: DynArray[address, MAX_NUM_ASSETS] = []
+    lowest: uint256 = max_value(uint256)
+    flags: uint256 = 0
     for i in range(MAX_NUM_ASSETS):
-        if i == len(_assets):
+        if i == num_assets:
+            break
+        asset: address = self.assets[i]
+        assets.append(asset)
+        if _amounts[i] > 0:
+            flags += shift(1, convert(i, int256))
+            if vb_sum > 0 and lowest > 0:
+                # find lowest increase in balance - a fee is applied on anything above it
+                lowest = min(_amounts[i] * self.rates[asset] / self.balances[asset], lowest)
+        else:
+            lowest = 0
+    assert flags > 0 # dev: need to deposit at least one asset
+        
+    # update rates
+    vb_prod, vb_sum = self._update_rates(assets, flags, vb_prod, vb_sum, False)
+    prev_supply: uint256 = self.supply
+
+    vb_prod_final: uint256 = vb_prod
+    vb_sum_final: uint256 = vb_sum
+    fee_rate: uint256 = self.fee_rate
+    for i in range(MAX_NUM_ASSETS):
+        if i == num_assets:
             break
 
-        asset: address = _assets[i]
         amount: uint256 = _amounts[i]
-        assert amount > 0 # dev: amounts must be non-zero
+        if amount == 0:
+            assert prev_supply > 0 # dev: initial deposit amounts must be non-zero
+            continue
+
+        asset: address = assets[i]
 
         # update stored virtual balance
         prev_vb: uint256 = self.balances[asset]
@@ -259,15 +275,20 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
         vb: uint256 = prev_vb + dvb
         self.balances[asset] = vb
 
-        if prev_supply == 0:
-            # initial deposit, must contain all assets
-            assert asset == self.assets[i]
-        else:
+        if prev_supply > 0:
+            weight: uint256 = self.weights[asset] * num_assets
+
             # update product and sum of virtual balances
-            vb_prod = vb_prod * self._pow_up(prev_vb * PRECISION / vb, self.weights[asset] * num_assets) / PRECISION
+            vb_prod_final = vb_prod_final * self._pow_up(prev_vb * PRECISION / vb, weight) / PRECISION
             # the `D^n` factor will be updated in `_calc_supply()`
-            vb_sum += dvb
-            # TODO: check safety range
+            vb_sum_final += dvb
+
+            # remove fees from balance and recalculate sum and product
+            fee: uint256 = (dvb - prev_vb * lowest / PRECISION) * fee_rate / PRECISION
+            vb_prod = vb_prod * self._pow_up(prev_vb * PRECISION / (vb - fee), weight) / PRECISION
+            vb_sum += dvb - fee
+        
+        # TODO: check safety range
 
         assert ERC20(asset).transferFrom(msg.sender, self, amount, default_return_value=True)
     
@@ -279,16 +300,24 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
         assert vb_prod > 0 # dev: amounts must be non-zero
         supply = vb_sum
 
-    # update supply
-    supply, vb_prod = self._calc_supply(supply, vb_prod, vb_sum)
-    self.vb_prod = vb_prod
-    self.vb_sum = vb_sum
-    self.supply = supply
-
     # mint LP tokens
+    supply, vb_prod = self._calc_supply(supply, vb_prod, vb_sum)
     mint: uint256 = supply - prev_supply
     assert mint > 0 and mint >= _min_lp_amount # dev: slippage
     PoolToken(token).mint(_receiver, mint)
+
+    supply_final: uint256 = supply
+    if prev_supply > 0:
+        # mint fees
+        supply_final, vb_prod_final = self._calc_supply(prev_supply, vb_prod_final, vb_sum_final)
+        PoolToken(token).mint(self.staking, supply_final - supply)
+    else:
+        vb_prod_final = vb_prod
+        vb_sum_final = vb_sum
+
+    self.supply = supply_final
+    self.vb_prod = vb_prod_final
+    self.vb_sum = vb_sum_final
 
     return mint
 
@@ -297,13 +326,14 @@ def add_liquidity(_assets: DynArray[address, MAX_NUM_ASSETS], _amounts: DynArray
 def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
     # update rates
     assets: DynArray[address, MAX_NUM_ASSETS] = []
-    for asset in self.assets:
-        if asset == empty(address):
+    num_assets: uint256 = self.num_assets
+    for i in range(MAX_NUM_ASSETS):
+        if i == num_assets:
             break
-        assets.append(asset)
+        assets.append(self.assets[i])
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
-    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, False)
+    vb_prod, vb_sum = self._update_rates(assets, shift(1, convert(num_assets, int256)) - 1, self.vb_prod, self.vb_sum, False)
 
     # update supply
     prev_supply: uint256 = self.supply
@@ -312,7 +342,6 @@ def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
     PoolToken(token).burn(msg.sender, _amount)
 
     # update necessary variables and transfer assets
-    num_assets: uint256 = self.num_assets
     for asset in assets:
         prev_bal: uint256 = self.balances[asset]
         dbal: uint256 = prev_bal * _amount / prev_supply
@@ -332,7 +361,7 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     assets: DynArray[address, MAX_NUM_ASSETS] = [_asset]
-    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, False)
+    vb_prod, vb_sum = self._update_rates(assets, 1, self.vb_prod, self.vb_sum, False)
 
     # update supply
     prev_supply: uint256 = self.supply
@@ -360,7 +389,8 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
 
 @external
 def update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
-    self.vb_prod, self.vb_sum = self._update_rates(_assets, self.vb_prod, self.vb_sum, False)
+    assert len(_assets) > 0
+    self.vb_prod, self.vb_sum = self._update_rates(_assets, shift(1, convert(len(_assets), int256)) - 1, self.vb_prod, self.vb_sum, False)
 
 @external
 def set_fee_rate(_fee_rate: uint256):
@@ -379,13 +409,18 @@ def set_management(_management: address):
     self.management = _management
 
 @internal
-def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256, _vb_sum: uint256, _force: bool) -> (uint256, uint256):
+def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _flags: uint256, _vb_prod: uint256, _vb_sum: uint256, _force: bool) -> (uint256, uint256):
     # TODO: weight changes
 
     vb_prod: uint256 = _vb_prod
     vb_sum: uint256 = _vb_sum
     num_assets: uint256 = self.num_assets
-    for asset in _assets:
+    for i in range(MAX_NUM_ASSETS):
+        if i == len(_assets):
+            break
+        if _flags & shift(1, convert(i, int256)) == 0:
+            continue
+        asset: address = _assets[i]
         provider: address = self.rate_providers[asset]
         assert provider != empty(address) # dev: asset not whitelisted
         prev_rate: uint256 = self.rates[asset]
@@ -408,23 +443,22 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256,
         return vb_prod, vb_sum
 
     supply: uint256 = 0
-    supply, vb_prod = self._update_supply(vb_prod, vb_sum)
+    supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
     return vb_prod, vb_sum
 
 @internal
-def _update_supply(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256):
+def _update_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256):
     # calculate new supply and burn or mint the difference from the staking contract
-    prev_supply: uint256 = self.supply
-    if prev_supply == 0:
+    if _supply == 0:
         return 0, _vb_prod
 
     supply: uint256 = 0
     vb_prod: uint256 = 0
-    supply, vb_prod = self._calc_supply(prev_supply, _vb_prod, _vb_sum)
-    if supply > prev_supply:
-        PoolToken(token).mint(self.staking, supply - prev_supply)
-    elif supply < prev_supply:
-        PoolToken(token).burn(self.staking, prev_supply - supply)
+    supply, vb_prod = self._calc_supply(_supply, _vb_prod, _vb_sum)
+    if supply > _supply:
+        PoolToken(token).mint(self.staking, supply - _supply)
+    elif supply < _supply:
+        PoolToken(token).burn(self.staking, _supply - supply)
     self.supply = supply
     return supply, vb_prod
 
