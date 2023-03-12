@@ -343,9 +343,11 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
     swap = 10 * PRECISION
     assets[0].approve(pool, MAX, sender=bob)
     assets[0].mint(bob, 2 * swap, sender=deployer)
+    expect = pool.get_dx(assets[0], assets[1], swap)
     pool.swap_exact_out(assets[0], assets[1], swap, MAX, sender=bob)
     assert assets[1].balanceOf(bob) == swap
     amt = 2 * swap - assets[0].balanceOf(bob)
+    assert amt == expect
     assert amt > swap
     # small penalty because pool is brought out of balance
     assert (amt - swap) / swap < 1e-3

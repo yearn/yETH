@@ -150,9 +150,36 @@ def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
     return (prev_vby - vby) * PRECISION / rates[1]
 
 @external
+@view
 def get_dx(_i: address, _j: address, _dy: uint256) -> uint256:
-    # TODO
-    return 0
+    # update rates for from and to assets
+    # reverts if either is not part of the pool
+    vb_prod: uint256 = 0
+    vb_sum: uint256 = 0
+    assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
+    supply: uint256 = 0
+    rates: DynArray[uint256, MAX_NUM_ASSETS] = []
+    supply, vb_prod, vb_sum, rates = self._get_rates(assets, 3, self.vb_prod, self.vb_sum)
+
+    num_assets: uint256 = self.num_assets
+    prev_vbx: uint256 = self.balances[_i] * rates[0] / self.rates[_i]
+    prev_vby: uint256 = self.balances[_j] * rates[1] / self.rates[_j]
+
+    dvby: uint256 = _dy * rates[1] / PRECISION
+    vby: uint256 = prev_vby - dvby
+
+    # update x_j and remove x_i from variables
+    vb_prod = vb_prod * self._pow_up(prev_vbx, self.weights[_i] * num_assets) / self._pow_down(vby * PRECISION / prev_vby, self.weights[_j] * num_assets)
+    vb_sum = vb_sum - dvby - prev_vbx
+
+    # calulate new balance of in token
+    vbx: uint256 = self._calc_vb(_i, supply, vb_prod, vb_sum)
+    dx: uint256 = (vbx - prev_vbx) * PRECISION / rates[0]
+    dx_fee: uint256 = self.fee_rate
+    dx_fee = dx * dx_fee / (PRECISION - dx_fee)
+    dx += dx_fee
+    
+    return dx
 
 @external
 @nonreentrant('lock')
