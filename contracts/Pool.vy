@@ -3,7 +3,7 @@
 from vyper.interfaces import ERC20
 
 interface RateProvider:
-    def rate(_asset: address) -> uint256: nonpayable
+    def rate(_asset: address) -> uint256: view
 
 interface PoolToken:
     def mint(_account: address, _value: uint256): nonpayable
@@ -107,12 +107,50 @@ def __init__(
     self.management = msg.sender
 
 @external
-def get_dx(_i: address, _j: address, _dy: uint256) -> uint256:
-    # TODO
-    return 0
+@view
+def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
+    assert _i != _j # dev: same input and output asset
+    assert _dx > 0 # dev: zero amount
+    num_assets: uint256 = self.num_assets
+
+    prev_vbx: uint256 = 0
+    dvbx: uint256 = 0
+    vbx: uint256 = 0
+    vb_prod: uint256 = self.vb_prod
+    vb_sum: uint256 = self.vb_sum
+
+    dx_fee: uint256 = _dx * self.fee_rate / PRECISION
+    if dx_fee > 0:
+        # add fee to pool
+        prev_vbx = self.balances[_i]
+        dvbx = dx_fee * self.rates[_i] / PRECISION
+        vbx = prev_vbx + dvbx
+        vb_prod = vb_prod * PRECISION / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] * num_assets)
+        vb_sum += dvbx
+
+    # update rates for from and to assets
+    # reverts if either is not part of the pool
+    assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
+    supply: uint256 = 0
+    rates: DynArray[uint256, MAX_NUM_ASSETS] = []
+    supply, vb_prod, vb_sum, rates = self._get_rates(assets, 3, vb_prod, vb_sum)
+
+    prev_vbx = self.balances[_i] * rates[0] / self.rates[_i]
+    prev_vby: uint256 = self.balances[_j] * rates[1] / self.rates[_j]
+
+    dvbx = (_dx - dx_fee) * rates[0] / PRECISION
+    vbx = prev_vbx + dvbx
+    
+    # update x_i and remove x_j from variables
+    vb_prod = vb_prod * self._pow_up(prev_vby, self.weights[_j] * num_assets) / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] * num_assets)
+    vb_sum = vb_sum + dvbx - prev_vby
+
+    # calulate new balance of out token
+    vby: uint256 = self._calc_vb(_j, supply, vb_prod, vb_sum)
+    return (prev_vby - vby) * PRECISION / rates[1]
 
 @external
-def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
+def get_dx(_i: address, _j: address, _dy: uint256) -> uint256:
     # TODO
     return 0
 
@@ -159,7 +197,7 @@ def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: ad
     vb_sum = vb_sum + dvbx - prev_vby
 
     # calulate new balance of out token
-    vby: uint256 = self._calc_vb(_j, vb_prod, vb_sum)
+    vby: uint256 = self._calc_vb(_j, self.supply, vb_prod, vb_sum)
     dy: uint256 = (prev_vby - vby) * PRECISION / self.rates[_j]
     assert dy >= _min_dy
 
@@ -200,7 +238,7 @@ def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _re
     vb_sum = vb_sum - dvby - prev_vbx
 
     # calulate new balance of in token
-    vbx: uint256 = self._calc_vb(_i, vb_prod, vb_sum)
+    vbx: uint256 = self._calc_vb(_i, self.supply, vb_prod, vb_sum)
     dx: uint256 = (vbx - prev_vbx) * PRECISION / self.rates[_i]
     dx_fee: uint256 = self.fee_rate
     dx_fee = dx * dx_fee / (PRECISION - dx_fee)
@@ -382,7 +420,7 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
     vb_sum = vb_sum - prev_vb
 
     # calculate new balance of asset
-    vb: uint256 = self._calc_vb(_asset, vb_prod, vb_sum)
+    vb: uint256 = self._calc_vb(_asset, supply, vb_prod, vb_sum)
     dvb: uint256 = prev_vb - vb
     fee: uint256 = dvb * self.fee_rate / 2 / PRECISION
     dvb -= fee
@@ -421,6 +459,38 @@ def set_staking(_staking: address):
 def set_management(_management: address):
     assert msg.sender == self.management
     self.management = _management
+
+@internal
+@view
+def _get_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _flags: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint256, DynArray[uint256, MAX_NUM_ASSETS]):
+    rates: DynArray[uint256, MAX_NUM_ASSETS] = []
+    vb_prod: uint256 = _vb_prod
+    vb_sum: uint256 = _vb_sum
+    num_assets: uint256 = self.num_assets
+    for i in range(MAX_NUM_ASSETS):
+        if i == len(_assets):
+            break
+        if _flags & shift(1, convert(i, int256)) == 0:
+            continue
+        asset: address = _assets[i]
+        provider: address = self.rate_providers[asset]
+        assert provider != empty(address) # dev: asset not whitelisted
+        prev_rate: uint256 = self.rates[asset]
+        rate: uint256 = RateProvider(provider).rate(asset)
+        assert rate > 0 # dev: no rate
+        rates.append(rate)
+        if rate == prev_rate:
+            continue
+        # factor out old rate and factor in new
+        vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, self.weights[asset] * num_assets) / PRECISION
+
+        prev_bal: uint256 = self.balances[asset]
+        bal: uint256 = prev_bal * rate / prev_rate
+        vb_sum = vb_sum + bal - prev_bal
+
+    supply: uint256 = 0
+    supply, vb_prod = self._calc_supply(self.supply, vb_prod, vb_sum)
+    return supply, vb_prod, vb_sum, rates
 
 @internal
 def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _flags: uint256, _vb_prod: uint256, _vb_sum: uint256, _force: bool) -> (uint256, uint256):
@@ -538,7 +608,7 @@ def _calc_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint
 
 @internal
 @view
-def _calc_vb(_j: address, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
+def _calc_vb(_j: address, _supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
     # y = x_j, sum' = sum(x_i, i != j), prod' = prod(x_i^w_i, i != j)
     # w = product(w_i), v_i = w_i n, f_i = 1/v_i
     # Iteratively find root of g(y) using Newton's method
@@ -547,7 +617,7 @@ def _calc_vb(_j: address, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
     # y[n+1] = y[n] - g(y[n])/g'(y[n])
     #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / (f_j + 1) y[n] + b)
 
-    d: uint256 = self.supply
+    d: uint256 = _supply
     b: uint256 = d * self.w_prod / self.amplification # actually b + D
     c: uint256 = _vb_prod * b / PRECISION
     b += _vb_sum

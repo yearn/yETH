@@ -264,9 +264,11 @@ def test_swap(project, deployer, alice, bob, token):
     swap = 10 * PRECISION
     assets[0].approve(pool, MAX, sender=bob)
     assets[0].mint(bob, swap, sender=deployer)
+    expect = pool.get_dy(assets[0], assets[1], swap)
     pool.swap(assets[0], assets[1], swap, 0, sender=bob)
     assert assets[0].balanceOf(bob) == 0
     bal = assets[1].balanceOf(bob)
+    assert bal == expect
     assert bal < swap
     # small penalty because pool is brought out of balance
     assert (swap - bal) / swap < 1e-3
