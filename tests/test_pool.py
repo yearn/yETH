@@ -113,6 +113,42 @@ def test_withdraw_single(project, deployer, alice, bob, token):
     assert abs(vb_sum2 - vb_sum) / vb_sum < 1e-17
     assert abs(vb_prod2 - vb_prod) / vb_prod < 1e-14
 
+def test_deposit_fee(project, chain, deployer, alice, bob, token):
+    amplification = PRECISION
+    n = 4
+    assets, provider = deploy_assets(project, deployer, n)
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    amt = 100 * PRECISION
+    for i in range(n):
+        asset = assets[i]
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt, sender=deployer)
+    pool.add_liquidity([amt for _ in range(n)], 0, sender=alice)
+
+    swap_amt = amt//100
+    assets[0].approve(pool, MAX, sender=bob)
+    assets[0].mint(bob, swap_amt, sender=deployer)
+
+    # add and remove single sided liquidity without fee
+    id = chain.snapshot()
+    pool.add_liquidity([swap_amt if i == 0 else 0 for i in range(n)], 0, sender=bob)
+    pool.remove_liquidity_single(assets[1], token.balanceOf(bob), sender=bob)
+    full_amt = assets[1].balanceOf(bob)
+    chain.restore(id)
+
+    fee_rate = PRECISION // 100
+    pool.set_staking(deployer, sender=deployer)
+    pool.set_fee_rate(fee_rate, sender=deployer) # 1%
+
+    # add and remove single sided liquidity with fee
+    pool.add_liquidity([swap_amt if i == 0 else 0 for i in range(n)], 0, sender=bob)
+    pool.remove_liquidity_single(assets[1], token.balanceOf(bob), sender=bob)
+    out_amt = assets[1].balanceOf(bob)
+    actual_fee_rate = (full_amt - out_amt) * PRECISION / full_amt
+    assert abs(fee_rate - actual_fee_rate) / fee_rate < 0.01
+
 def test_equal_imbalanced_deposit(project, chain, deployer, alice, bob, token):
     # multiple tokens with equal weights, imbalanced initial deposit
     amplification = 10 * PRECISION

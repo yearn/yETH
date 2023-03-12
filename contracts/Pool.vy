@@ -257,7 +257,7 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
 
     vb_prod_final: uint256 = vb_prod
     vb_sum_final: uint256 = vb_sum
-    fee_rate: uint256 = self.fee_rate
+    fee_rate: uint256 = self.fee_rate / 2
     for i in range(MAX_NUM_ASSETS):
         if i == num_assets:
             break
@@ -383,12 +383,21 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
 
     # calculate new balance of asset
     vb: uint256 = self._calc_vb(_asset, vb_prod, vb_sum)
-    dx: uint256 = (prev_vb - vb) * PRECISION / self.rates[_asset]
+    dvb: uint256 = prev_vb - vb
+    fee: uint256 = dvb * self.fee_rate / 2 / PRECISION
+    dvb -= fee
+    vb += fee
+    dx: uint256 = dvb * PRECISION / self.rates[_asset]
 
     # update variables
     self.balances[_asset] = vb
-    self.vb_prod = vb_prod * PRECISION / self._pow_up(vb, weight)
-    self.vb_sum = vb_sum + vb
+    vb_prod = vb_prod * PRECISION / self._pow_up(vb, weight)
+    vb_sum = vb_sum + vb
+
+    # mint fee
+    supply, vb_prod = self._update_supply(supply, vb_prod, vb_sum)
+    self.vb_prod = vb_prod
+    self.vb_sum = vb_sum
 
     assert ERC20(_asset).transfer(_receiver, dx, default_return_value=True)
 
@@ -539,7 +548,7 @@ def _calc_vb(_j: address, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
     #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / (f_j + 1) y[n] + b)
 
     d: uint256 = self.supply
-    b: uint256 = d * self.w_prod / self.amplification
+    b: uint256 = d * self.w_prod / self.amplification # actually b + D
     c: uint256 = _vb_prod * b / PRECISION
     b += _vb_sum
     v: uint256 = self.weights[_j] * self.num_assets
