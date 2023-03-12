@@ -308,8 +308,10 @@ def test_swap_fee(project, chain, deployer, alice, bob, token):
     assets[0].mint(bob, swap, sender=deployer)
 
     id = chain.snapshot()
+    expect = pool.get_dy(assets[0], assets[1], swap)
     pool.swap(assets[0], assets[1], swap, 0, sender=bob)
     full_out = assets[1].balanceOf(bob)
+    assert full_out == expect
     chain.restore(id)
 
     # swap with fee
@@ -317,8 +319,10 @@ def test_swap_fee(project, chain, deployer, alice, bob, token):
     pool.set_staking(deployer, sender=deployer)
     pool.set_fee_rate(fee_rate, sender=deployer)
     
+    expect = pool.get_dy(assets[0], assets[1], swap)
     pool.swap(assets[0], assets[1], swap, 0, sender=bob)
     out = assets[1].balanceOf(bob)
+    assert out == expect
     actual_fee_rate = (full_out - out) * PRECISION // full_out
     # fee is charged on input so not exact on output
     assert abs(fee_rate - actual_fee_rate) / fee_rate < 0.01
@@ -391,8 +395,10 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     assets[0].approve(pool, MAX, sender=bob)
     assets[0].mint(bob, 2 * swap, sender=deployer)
     id = chain.snapshot()
+    expect = pool.get_dx(assets[0], assets[1], swap)
     pool.swap_exact_out(assets[0], assets[1], swap, MAX, sender=bob)
     base_amt = 2 * swap - assets[0].balanceOf(bob)
+    assert base_amt == expect
     exp_fee_amt = base_amt * PRECISION // (PRECISION - fee_rate) - base_amt
 
     # add expected fee as liquidity
@@ -407,8 +413,10 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     pool.set_staking(deployer, sender=deployer)
     pool.set_fee_rate(fee_rate, sender=deployer)
 
+    expect = pool.get_dx(assets[0], assets[1], swap)
     pool.swap_exact_out(assets[0], assets[1], swap, MAX, sender=bob)
     amt = 2 * swap - assets[0].balanceOf(bob)
+    assert amt == expect
     fee_amt = amt - base_amt
     assert fee_amt == exp_fee_amt
     

@@ -115,7 +115,7 @@ def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
 
     prev_vbx: uint256 = 0
     dvbx: uint256 = 0
-    vbx: uint256 = 0
+    vbx: uint256 = self.balances[_i]
     vb_prod: uint256 = self.vb_prod
     vb_sum: uint256 = self.vb_sum
 
@@ -135,7 +135,7 @@ def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
     supply, vb_prod, vb_sum, rates = self._get_rates(assets, 3, vb_prod, vb_sum)
 
-    prev_vbx = self.balances[_i] * rates[0] / self.rates[_i]
+    prev_vbx = vbx * rates[0] / self.rates[_i]
     prev_vby: uint256 = self.balances[_j] * rates[1] / self.rates[_j]
 
     dvbx = (_dx - dx_fee) * rates[0] / PRECISION
