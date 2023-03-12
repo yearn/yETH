@@ -133,7 +133,7 @@ def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
     supply: uint256 = 0
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-    supply, vb_prod, vb_sum, rates = self._get_rates(assets, 3, vb_prod, vb_sum)
+    supply, vb_prod, vb_sum, rates = self._get_rates(assets, vb_prod, vb_sum)
 
     prev_vbx = vbx * rates[0] / self.rates[_i]
     prev_vby: uint256 = self.balances[_j] * rates[1] / self.rates[_j]
@@ -159,7 +159,7 @@ def get_dx(_i: address, _j: address, _dy: uint256) -> uint256:
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
     supply: uint256 = 0
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-    supply, vb_prod, vb_sum, rates = self._get_rates(assets, 3, self.vb_prod, self.vb_sum)
+    supply, vb_prod, vb_sum, rates = self._get_rates(assets, self.vb_prod, self.vb_sum)
 
     num_assets: uint256 = self.num_assets
     prev_vbx: uint256 = self.balances[_i] * rates[0] / self.rates[_i]
@@ -208,7 +208,7 @@ def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: ad
     # update rates for from and to assets
     # reverts if either is not part of the pool
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
-    vb_prod, vb_sum = self._update_rates(assets, 3, vb_prod, vb_sum, dx_fee > 0)
+    vb_prod, vb_sum = self._update_rates(assets, vb_prod, vb_sum, dx_fee > 0)
 
     # TODO: check safety range
 
@@ -247,7 +247,7 @@ def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _re
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
-    vb_prod, vb_sum = self._update_rates(assets, 3, self.vb_prod, self.vb_sum, False)
+    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, False)
 
     # TODO: check safety range
     # TODO: fees
@@ -301,23 +301,24 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
 
     assets: DynArray[address, MAX_NUM_ASSETS] = []
     lowest: uint256 = max_value(uint256)
-    flags: uint256 = 0
+    has_any: bool = False
     for i in range(MAX_NUM_ASSETS):
         if i == num_assets:
             break
-        asset: address = self.assets[i]
-        assets.append(asset)
         if _amounts[i] > 0:
-            flags += shift(1, convert(i, int256))
+            asset: address = self.assets[i]
+            assets.append(asset)
+            has_any = True
             if vb_sum > 0 and lowest > 0:
                 # find lowest increase in balance - a fee is applied on anything above it
                 lowest = min(_amounts[i] * self.rates[asset] / self.balances[asset], lowest)
         else:
+            assets.append(empty(address))
             lowest = 0
-    assert flags > 0 # dev: need to deposit at least one asset
+    assert has_any # dev: need to deposit at least one asset
         
     # update rates
-    vb_prod, vb_sum = self._update_rates(assets, flags, vb_prod, vb_sum, False)
+    vb_prod, vb_sum = self._update_rates(assets, vb_prod, vb_sum, False)
     prev_supply: uint256 = self.supply
 
     vb_prod_final: uint256 = vb_prod
@@ -398,7 +399,7 @@ def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
         assets.append(self.assets[i])
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
-    vb_prod, vb_sum = self._update_rates(assets, shift(1, convert(num_assets, int256)) - 1, self.vb_prod, self.vb_sum, False)
+    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, False)
 
     # update supply
     prev_supply: uint256 = self.supply
@@ -426,7 +427,7 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     assets: DynArray[address, MAX_NUM_ASSETS] = [_asset]
-    vb_prod, vb_sum = self._update_rates(assets, 1, self.vb_prod, self.vb_sum, False)
+    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, False)
 
     # update supply
     prev_supply: uint256 = self.supply
@@ -469,7 +470,7 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
 @external
 def update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
     assert len(_assets) > 0
-    self.vb_prod, self.vb_sum = self._update_rates(_assets, shift(1, convert(len(_assets), int256)) - 1, self.vb_prod, self.vb_sum, False)
+    self.vb_prod, self.vb_sum = self._update_rates(_assets, self.vb_prod, self.vb_sum, False)
 
 @external
 def set_fee_rate(_fee_rate: uint256):
@@ -489,7 +490,7 @@ def set_management(_management: address):
 
 @internal
 @view
-def _get_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _flags: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint256, DynArray[uint256, MAX_NUM_ASSETS]):
+def _get_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint256, DynArray[uint256, MAX_NUM_ASSETS]):
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
     vb_prod: uint256 = _vb_prod
     vb_sum: uint256 = _vb_sum
@@ -497,9 +498,9 @@ def _get_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _flags: uint256, _vb_
     for i in range(MAX_NUM_ASSETS):
         if i == len(_assets):
             break
-        if _flags & shift(1, convert(i, int256)) == 0:
-            continue
         asset: address = _assets[i]
+        if asset == empty(address):
+            continue
         provider: address = self.rate_providers[asset]
         assert provider != empty(address) # dev: asset not whitelisted
         prev_rate: uint256 = self.rates[asset]
@@ -520,7 +521,7 @@ def _get_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _flags: uint256, _vb_
     return supply, vb_prod, vb_sum, rates
 
 @internal
-def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _flags: uint256, _vb_prod: uint256, _vb_sum: uint256, _force: bool) -> (uint256, uint256):
+def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256, _vb_sum: uint256, _force: bool) -> (uint256, uint256):
     # TODO: weight changes
 
     vb_prod: uint256 = _vb_prod
@@ -529,9 +530,9 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _flags: uint256, _
     for i in range(MAX_NUM_ASSETS):
         if i == len(_assets):
             break
-        if _flags & shift(1, convert(i, int256)) == 0:
-            continue
         asset: address = _assets[i]
+        if asset == empty(address):
+            continue
         provider: address = self.rate_providers[asset]
         assert provider != empty(address) # dev: asset not whitelisted
         prev_rate: uint256 = self.rates[asset]
