@@ -39,7 +39,7 @@ E17: constant(int256)              = 100 * E15
 E18: constant(int256)              = E3 * E15
 E20: constant(int256)              = 100 * E18
 E36: constant(int256)              = E18 * E18
-MAX_POW_REL_ERR: constant(uint256) = 10_000 # 1e-14
+MAX_POW_REL_ERR: constant(uint256) = 100 # 1e-16
 MIN_NAT_EXP: constant(int256)      = -41 * E18
 MAX_NAT_EXP: constant(int256)      = 130 * E18
 LOG36_LOWER: constant(int256)      = E18 - E17
@@ -208,7 +208,7 @@ def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: ad
     # update rates for from and to assets
     # reverts if either is not part of the pool
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
-    vb_prod, vb_sum = self._update_rates(assets, vb_prod, vb_sum, dx_fee > 0)
+    vb_prod, vb_sum = self._update_rates(assets, vb_prod, vb_sum, True)
 
     # TODO: check safety range
 
@@ -247,7 +247,7 @@ def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _re
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
-    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, False)
+    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, True)
 
     # TODO: check safety range
     # TODO: fees
@@ -367,7 +367,7 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
         supply = vb_sum
 
     # mint LP tokens
-    supply, vb_prod = self._calc_supply(supply, vb_prod, vb_sum)
+    supply, vb_prod = self._calc_supply(supply, vb_prod, vb_sum, False)
     mint: uint256 = supply - prev_supply
     assert mint > 0 and mint >= _min_lp_amount # dev: slippage
     PoolToken(token).mint(_receiver, mint)
@@ -375,7 +375,7 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
     supply_final: uint256 = supply
     if prev_supply > 0:
         # mint fees
-        supply_final, vb_prod_final = self._calc_supply(prev_supply, vb_prod_final, vb_sum_final)
+        supply_final, vb_prod_final = self._calc_supply(prev_supply, vb_prod_final, vb_sum_final, True)
         PoolToken(token).mint(self.staking, supply_final - supply)
     else:
         vb_prod_final = vb_prod
@@ -460,8 +460,10 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
     vb_prod = vb_prod * PRECISION / self._pow_up(vb, weight)
     vb_sum = vb_sum + vb
 
-    # mint fee
-    supply, vb_prod = self._update_supply(supply, vb_prod, vb_sum)
+    if fee > 0:
+        # mint fee
+        supply, vb_prod = self._update_supply(supply, vb_prod, vb_sum)
+
     self.vb_prod = vb_prod
     self.vb_sum = vb_sum
 
@@ -517,7 +519,7 @@ def _get_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256, _v
         vb_sum = vb_sum + bal - prev_bal
 
     supply: uint256 = 0
-    supply, vb_prod = self._calc_supply(self.supply, vb_prod, vb_sum)
+    supply, vb_prod = self._calc_supply(self.supply, vb_prod, vb_sum, True)
     return supply, vb_prod, vb_sum, rates
 
 @internal
@@ -566,7 +568,7 @@ def _update_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (ui
 
     supply: uint256 = 0
     vb_prod: uint256 = 0
-    supply, vb_prod = self._calc_supply(_supply, _vb_prod, _vb_sum)
+    supply, vb_prod = self._calc_supply(_supply, _vb_prod, _vb_sum, True)
     if supply > _supply:
         PoolToken(token).mint(self.staking, supply - _supply)
     elif supply < _supply:
@@ -578,6 +580,7 @@ def _update_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (ui
 # make sure to keep in sync with Math.vy
 
 @internal
+@view
 def _calc_w_prod() -> uint256:
     prod: uint256 = PRECISION
     num_assets: uint256 = self.num_assets
@@ -587,6 +590,7 @@ def _calc_w_prod() -> uint256:
     return prod
 
 @internal
+@view
 def _calc_vb_prod_sum() -> (uint256, uint256):
     p: uint256 = PRECISION
     s: uint256 = 0
@@ -604,7 +608,7 @@ def _calc_vb_prod_sum() -> (uint256, uint256):
 
 @internal
 @view
-def _calc_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256):
+def _calc_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256, _up: bool) -> (uint256, uint256):
     # TODO: weight changes
     # TODO: amplification changes
 
@@ -625,10 +629,18 @@ def _calc_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint
                 break
             r = r * sp / s
         if sp >= s:
-            if sp - s <= 1:
+            if (sp - s) * PRECISION / s <= MAX_POW_REL_ERR:
+                if _up:
+                    sp += sp * MAX_POW_REL_ERR / PRECISION
+                else:
+                    sp -= sp * MAX_POW_REL_ERR / PRECISION
                 return sp, r
         else:
-            if s - sp == 1:
+            if (s - sp) * PRECISION / s <= MAX_POW_REL_ERR:
+                if _up:
+                    sp += sp * MAX_POW_REL_ERR / PRECISION
+                else:
+                    sp -= sp * MAX_POW_REL_ERR / PRECISION
                 return sp, r
         s = sp
 
