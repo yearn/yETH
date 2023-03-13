@@ -1,71 +1,70 @@
-from math import log, exp, pow
+from mpmath import *
 import random
+
+mp.dps = 20
 
 E3 = 1_000
 E6 = E3 * E3
 E9 = E3 * E6
 E18 = E9 * E9
-MAX_REL_ERR = 20_000
+MAX_REL_ERR = 200
+N_ITER = 1000
 
 def test_log(project, accounts):
     math = project.Math.deploy(sender=accounts[0])
     random.seed()
 
-    for _ in range(100):
+    for _ in range(N_ITER):
         x = random.randrange(0, E18)
-        a = int(log(x / E18) * E18)
+        a = int(log(mpf(x) / E18) * E18)
         b = math.ln(x)
-        e = abs(b // MAX_REL_ERR)
-        assert abs(a - b) <= e
+        assert abs(a - b) <= 2
 
-    for _ in range(100):
+    for _ in range(N_ITER):
         x = random.randrange(0, E3 * E18)
-        a = int(log(x / E18) * E18)
+        a = int(log(mpf(x) / E18) * E18)
         b = math.ln(x)
-        e = abs(b // MAX_REL_ERR)
-        assert abs(a - b) <= e
+        assert abs(a - b) <= 2
 
-    for _ in range(100):
+    for _ in range(N_ITER):
         x = random.randrange(0, E6 * E18)
-        a = int(log(x / E18) * E18)
+        a = int(log(mpf(x) / E18) * E18)
         b = math.ln(x)
-        e = abs(b // MAX_REL_ERR)
-        assert abs(a - b) <= e
+        assert abs(a - b) <= 2
 
 def test_log36(project, accounts):
     math = project.Math.deploy(sender=accounts[0])
     random.seed()
 
-    for _ in range(100):
+    for _ in range(N_ITER):
         x = random.randrange(E18 * 9 // 10, E18 * 11 // 10)
         y = random.randrange(0, 4 * E18)
-        a = int(log(x / E18) * y)
+        a = int(log(mpf(x) / E18) * y)
         b = math.ln36(x)
         b = (b // E18 * y + (b % E18) * y // E18) // E18
-        e = abs(b // MAX_REL_ERR)
-        assert abs(a - b) <= e
+        assert abs(a - b) <= 2
 
 def test_exp(project, accounts):
     math = project.Math.deploy(sender=accounts[0])
     random.seed()
 
-    for _ in range(100):
+    for _ in range(N_ITER):
         x = random.randrange(0, E18)
-        a = int(exp(x / E18) * E18)
+        a = int(exp(mpf(x) / E18) * E18)
         b = math.exponent(x)
         e = abs(b // MAX_REL_ERR)
         assert abs(a - b) <= e
 
-    for _ in range(100):
+    for _ in range(N_ITER):
         x = random.randrange(E18, 10 * E18)
-        a = int(exp(x / E18) * E18)
+        a = int(exp(mpf(x) / E18) * E18)
         b = math.exponent(x)
         e = abs(b // MAX_REL_ERR)
         assert abs(a - b) <= e
 
-    for _ in range(100):
+    for _ in range(N_ITER):
         x = random.randrange(10 * E18, 100 * E18)
-        a = int(exp(x / E18) * E18)
+        a = int(exp(mpf(x) / E18) * E18)
         b = math.exponent(x)
         e = abs(b // MAX_REL_ERR)
         assert abs(a - b) <= e
@@ -74,32 +73,30 @@ def test_pow(project, accounts):
     math = project.Math.deploy(sender=accounts[0])
     random.seed()
 
-    for _ in range(100):
+    for _ in range(N_ITER):
         x = random.randrange(0, E18)
         y = random.randrange(0, 4 * E18)
-        a = int(pow(x / E18, y / E18) * E18)
+        a = int(pow(mpf(x) / E18, mpf(y) / E18) * E18)
         b = math.pow_up(x, y)
         c = math.pow_down(x, y)
-
         e = (a * MAX_REL_ERR - 1) // E18 + 1
         assert b >= a and b - a <= e
         assert c <= a and a - c <= e
 
-    for _ in range(100):
+    for _ in range(N_ITER):
         x = random.randrange(E18, E3 * E18)
         y = random.randrange(0, 4 * E18)
-        a = int(pow(x / E18, y / E18) * E18)
+        a = int(pow(mpf(x) / E18, mpf(y) / E18) * E18)
         b = math.pow_up(x, y)
         c = math.pow_down(x, y)
-
         e = (a * MAX_REL_ERR - 1) // E18 + 1
         assert b >= a and b - a <= e
         assert c <= a and a - c <= e
 
-    for _ in range(100):
+    for _ in range(N_ITER):
         x = random.randrange(E3 * E18, E6 * E18)
         y = random.randrange(0, 4 * E18)
-        a = int(pow(x / E18, y / E18) * E18)
+        a = int(pow(mpf(x) / E18, mpf(y) / E18) * E18)
         b = math.pow_up(x, y)
         c = math.pow_down(x, y)
 
@@ -107,10 +104,10 @@ def test_pow(project, accounts):
         assert b >= a and b - a <= e
         assert c <= a and a - c <= e
 
-    for _ in range(100):
+    for _ in range(N_ITER):
         x = random.randrange(E6 * E18, E9 * E18)
         y = random.randrange(0, 4 * E18)
-        a = int(pow(x / E18, y / E18) * E18)
+        a = int(pow(mpf(x) / E18, mpf(y) / E18) * E18)
         b = math.pow_up(x, y)
         c = math.pow_down(x, y)
 
