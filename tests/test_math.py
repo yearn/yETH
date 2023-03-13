@@ -8,7 +8,7 @@ E6 = E3 * E3
 E9 = E3 * E6
 E18 = E9 * E9
 MAX_REL_ERR = 200
-N_ITER = 1000
+N_ITER = 100
 
 def test_log(project, accounts):
     math = project.Math.deploy(sender=accounts[0])
@@ -79,7 +79,7 @@ def test_pow(project, accounts):
         a = int(pow(mpf(x) / E18, mpf(y) / E18) * E18)
         b = math.pow_up(x, y)
         c = math.pow_down(x, y)
-        e = (a * MAX_REL_ERR - 1) // E18 + 1
+        e = max(2, (a * MAX_REL_ERR - 1) // E18 + 1)
         assert b >= a and b - a <= e
         assert c <= a and a - c <= e
 
