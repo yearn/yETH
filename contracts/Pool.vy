@@ -18,7 +18,7 @@ assets: public(address[MAX_NUM_ASSETS])
 rate_providers: public(HashMap[address, address])
 balances: public(HashMap[address, uint256]) # x_i r_i
 rates: public(HashMap[address, uint256]) # r_i
-weights: public(HashMap[address, uint256]) # w_i
+weights: public(HashMap[address, uint256]) # w_i * n
 management: public(address)
 fee_rate: public(uint256)
 
@@ -28,6 +28,7 @@ vb_sum: uint256 # virtual balance sum: sum(x_i r_i)
 
 PRECISION: constant(uint256) = 1_000_000_000_000_000_000
 MAX_NUM_ASSETS: constant(uint256) = 32
+WEIGHT_MASK: constant(uint256) = 2**128 - 1
 
 # powers of 10
 E3: constant(int256)               = 1_000
@@ -100,7 +101,7 @@ def __init__(
         assert self.rate_providers[asset] == empty(address)
         self.rate_providers[asset] = _rate_providers[i]
         assert _weights[i] > 0
-        self.weights[asset] = _weights[i]
+        self.weights[asset] = _weights[i] * num_assets
         weight_sum += _weights[i]
     assert weight_sum == PRECISION
 
@@ -111,7 +112,6 @@ def __init__(
 def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
     assert _i != _j # dev: same input and output asset
     assert _dx > 0 # dev: zero amount
-    num_assets: uint256 = self.num_assets
 
     prev_vbx: uint256 = 0
     dvbx: uint256 = 0
@@ -125,7 +125,7 @@ def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
         prev_vbx = self.balances[_i]
         dvbx = dx_fee * self.rates[_i] / PRECISION
         vbx = prev_vbx + dvbx
-        vb_prod = vb_prod * PRECISION / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] * num_assets)
+        vb_prod = vb_prod * PRECISION / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] & WEIGHT_MASK)
         vb_sum += dvbx
 
     # update rates for from and to assets
@@ -142,7 +142,7 @@ def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
     vbx = prev_vbx + dvbx
     
     # update x_i and remove x_j from variables
-    vb_prod = vb_prod * self._pow_up(prev_vby, self.weights[_j] * num_assets) / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] * num_assets)
+    vb_prod = vb_prod * self._pow_up(prev_vby, self.weights[_j] & WEIGHT_MASK) / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] & WEIGHT_MASK)
     vb_sum = vb_sum + dvbx - prev_vby
 
     # calulate new balance of out token
@@ -161,7 +161,6 @@ def get_dx(_i: address, _j: address, _dy: uint256) -> uint256:
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
     supply, vb_prod, vb_sum, rates = self._get_rates(assets, self.vb_prod, self.vb_sum)
 
-    num_assets: uint256 = self.num_assets
     prev_vbx: uint256 = self.balances[_i] * rates[0] / self.rates[_i]
     prev_vby: uint256 = self.balances[_j] * rates[1] / self.rates[_j]
 
@@ -169,7 +168,7 @@ def get_dx(_i: address, _j: address, _dy: uint256) -> uint256:
     vby: uint256 = prev_vby - dvby
 
     # update x_j and remove x_i from variables
-    vb_prod = vb_prod * self._pow_up(prev_vbx, self.weights[_i] * num_assets) / self._pow_down(vby * PRECISION / prev_vby, self.weights[_j] * num_assets)
+    vb_prod = vb_prod * self._pow_up(prev_vbx, self.weights[_i] & WEIGHT_MASK) / self._pow_down(vby * PRECISION / prev_vby, self.weights[_j] & WEIGHT_MASK)
     vb_sum = vb_sum - dvby - prev_vbx
 
     # calulate new balance of in token
@@ -186,7 +185,6 @@ def get_dx(_i: address, _j: address, _dy: uint256) -> uint256:
 def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: address = msg.sender) -> uint256:
     assert _i != _j # dev: same input and output asset
     assert _dx > 0 # dev: zero amount
-    num_assets: uint256 = self.num_assets
 
     prev_vbx: uint256 = 0
     dvbx: uint256 = 0
@@ -201,7 +199,7 @@ def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: ad
         dvbx = dx_fee * self.rates[_i] / PRECISION
         vbx = prev_vbx + dvbx
         self.balances[_i] = vbx
-        vb_prod = vb_prod * PRECISION / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] * num_assets)
+        vb_prod = vb_prod * PRECISION / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] & WEIGHT_MASK)
         vb_sum += dvbx
     # TODO: consider adding fee after swap
 
@@ -220,7 +218,7 @@ def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: ad
     
     # update x_i and remove x_j from variables
     self.balances[_i] = vbx
-    vb_prod = vb_prod * self._pow_up(prev_vby, self.weights[_j] * num_assets) / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] * num_assets)
+    vb_prod = vb_prod * self._pow_up(prev_vby, self.weights[_j] & WEIGHT_MASK) / self._pow_down(vbx * PRECISION / prev_vbx, self.weights[_i] & WEIGHT_MASK)
     vb_sum = vb_sum + dvbx - prev_vby
 
     # calulate new balance of out token
@@ -230,7 +228,7 @@ def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: ad
 
     # update variables
     self.balances[_j] = vby
-    self.vb_prod = vb_prod * PRECISION / self._pow_up(vby, self.weights[_j] * num_assets)
+    self.vb_prod = vb_prod * PRECISION / self._pow_up(vby, self.weights[_j] & WEIGHT_MASK)
     self.vb_sum = vb_sum + vby
 
     # transfer tokens
@@ -252,7 +250,6 @@ def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _re
     # TODO: check safety range
     # TODO: fees
 
-    num_assets: uint256 = self.num_assets
     prev_vbx: uint256 = self.balances[_i]
     prev_vby: uint256 = self.balances[_j]
 
@@ -261,7 +258,7 @@ def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _re
 
     # update x_j and remove x_i from variables
     self.balances[_j] = vby
-    vb_prod = vb_prod * self._pow_up(prev_vbx, self.weights[_i] * num_assets) / self._pow_down(vby * PRECISION / prev_vby, self.weights[_j] * num_assets)
+    vb_prod = vb_prod * self._pow_up(prev_vbx, self.weights[_i] & WEIGHT_MASK) / self._pow_down(vby * PRECISION / prev_vby, self.weights[_j] & WEIGHT_MASK)
     vb_sum = vb_sum - dvby - prev_vbx
 
     # calulate new balance of in token
@@ -275,7 +272,7 @@ def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _re
 
     # update variables
     self.balances[_i] = vbx
-    vb_prod = vb_prod * PRECISION / self._pow_up(vbx, self.weights[_i] * num_assets)
+    vb_prod = vb_prod * PRECISION / self._pow_up(vbx, self.weights[_i] & WEIGHT_MASK)
     vb_sum += vbx
 
     if dx_fee > 0:
@@ -342,7 +339,7 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
         self.balances[asset] = vb
 
         if prev_supply > 0:
-            weight: uint256 = self.weights[asset] * num_assets
+            weight: uint256 = self.weights[asset] & WEIGHT_MASK
 
             # update product and sum of virtual balances
             vb_prod_final = vb_prod_final * self._pow_up(prev_vb * PRECISION / vb, weight) / PRECISION
@@ -412,7 +409,7 @@ def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
         prev_bal: uint256 = self.balances[asset]
         dbal: uint256 = prev_bal * _amount / prev_supply
         bal: uint256 = prev_bal - dbal
-        vb_prod = vb_prod * prev_supply / supply * self._pow_down(prev_bal * PRECISION / bal, self.weights[asset] * num_assets) / PRECISION
+        vb_prod = vb_prod * prev_supply / supply * self._pow_down(prev_bal * PRECISION / bal, self.weights[asset] & WEIGHT_MASK) / PRECISION
         vb_sum -= dbal
         self.balances[asset] = bal
         assert ERC20(asset).transfer(_receiver, dbal * PRECISION / self.rates[asset], default_return_value=True)
@@ -435,7 +432,7 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
     self.supply = supply
     PoolToken(token).burn(msg.sender, _amount)
 
-    weight: uint256 = self.weights[_asset] * self.num_assets
+    weight: uint256 = self.weights[_asset] & WEIGHT_MASK
     prev_vb: uint256 = self.balances[_asset]
 
     # update variables
@@ -496,7 +493,6 @@ def _get_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256, _v
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
     vb_prod: uint256 = _vb_prod
     vb_sum: uint256 = _vb_sum
-    num_assets: uint256 = self.num_assets
     for i in range(MAX_NUM_ASSETS):
         if i == len(_assets):
             break
@@ -512,7 +508,7 @@ def _get_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256, _v
         if rate == prev_rate:
             continue
         # factor out old rate and factor in new
-        vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, self.weights[asset] * num_assets) / PRECISION
+        vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, self.weights[asset] & WEIGHT_MASK) / PRECISION
 
         prev_bal: uint256 = self.balances[asset]
         bal: uint256 = prev_bal * rate / prev_rate
@@ -528,7 +524,6 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256,
 
     vb_prod: uint256 = _vb_prod
     vb_sum: uint256 = _vb_sum
-    num_assets: uint256 = self.num_assets
     for i in range(MAX_NUM_ASSETS):
         if i == len(_assets):
             break
@@ -546,7 +541,7 @@ def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256,
 
         if prev_rate > 0:
             # factor out old rate and factor in new
-            vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, self.weights[asset] * num_assets) / PRECISION
+            vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, self.weights[asset] & WEIGHT_MASK) / PRECISION
 
             prev_bal: uint256 = self.balances[asset]
             bal: uint256 = prev_bal * rate / prev_rate
@@ -585,8 +580,8 @@ def _calc_w_prod() -> uint256:
     prod: uint256 = PRECISION
     num_assets: uint256 = self.num_assets
     for asset in self.assets:
-        weight: uint256 = self.weights[asset]
-        prod = prod * self._pow_up(weight, weight * num_assets) / PRECISION
+        weight: uint256 = self.weights[asset] & WEIGHT_MASK
+        prod = prod * self._pow_up(weight / num_assets, weight) / PRECISION
     return prod
 
 @internal
@@ -602,8 +597,8 @@ def _calc_vb_prod_sum() -> (uint256, uint256):
     for asset in self.assets:
         if asset == empty(address):
             break
-        weight: uint256 = self.weights[asset]
-        p = p * s / self._pow_down(self.balances[asset] * PRECISION / weight, weight * num_assets)
+        weight: uint256 = self.weights[asset] & WEIGHT_MASK
+        p = p * s / self._pow_down(self.balances[asset] * PRECISION / (weight / num_assets), weight)
     return p, s
 
 @internal
@@ -661,7 +656,7 @@ def _calc_vb(_j: address, _supply: uint256, _vb_prod: uint256, _vb_sum: uint256)
     b: uint256 = d * self.w_prod / self.amplification # actually b + D
     c: uint256 = _vb_prod * b / PRECISION
     b += _vb_sum
-    v: uint256 = self.weights[_j] * self.num_assets
+    v: uint256 = self.weights[_j] & WEIGHT_MASK
     f: uint256 = PRECISION * PRECISION / v
 
     y: uint256 = self.balances[_j]
