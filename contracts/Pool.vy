@@ -15,10 +15,10 @@ amplification: public(uint256)
 staking: public(address)
 num_assets: public(uint256)
 assets: public(address[MAX_NUM_ASSETS])
-rate_providers: public(HashMap[address, address])
-balances: public(HashMap[address, uint256]) # x_i r_i
-rates: public(HashMap[address, uint256]) # r_i
-weights: public(HashMap[address, uint256]) # (w_i * n, lower band, upper band)
+rate_providers: public(address[MAX_NUM_ASSETS])
+balances: public(uint256[MAX_NUM_ASSETS]) # x_i r_i
+rates: public(uint256[MAX_NUM_ASSETS]) # r_i
+weights: public(uint256[MAX_NUM_ASSETS]) # (w_i * n, lower band, upper band)
 management: public(address)
 fee_rate: public(uint256)
 
@@ -93,31 +93,29 @@ def __init__(
     self.num_assets = num_assets
     
     weight_sum: uint256 = 0
-    for i in range(MAX_NUM_ASSETS):
-        if i == num_assets:
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
             break
-        asset: address = _assets[i]
-        assert asset != empty(address)
-        self.assets[i] = asset
-        assert _rate_providers[i] != empty(address)
-        assert self.rate_providers[asset] == empty(address)
-        self.rate_providers[asset] = _rate_providers[i]
-        assert _weights[i] > 0
-        self.weights[asset] = self._pack_weight(_weights[i], 0, PRECISION, num_assets)
-        weight_sum += _weights[i]
+        assert _assets[asset] != empty(address)
+        self.assets[asset] = _assets[asset]
+        assert _rate_providers[asset] != empty(address)
+        self.rate_providers[asset] = _rate_providers[asset]
+        assert _weights[asset] > 0
+        self.weights[asset] = self._pack_weight(_weights[asset], 0, PRECISION, num_assets)
+        weight_sum += _weights[asset]
     assert weight_sum == PRECISION
 
     self.management = msg.sender
 
 @external
 @view
-def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
+def get_dy(_i: uint256, _j: uint256, _dx: uint256) -> uint256:
     assert _i != _j # dev: same input and output asset
     assert _dx > 0 # dev: zero amount
 
     # update rates for from and to assets
     # reverts if either is not part of the pool
-    assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
+    assets: DynArray[uint256, MAX_NUM_ASSETS] = [_i, _j]
     supply: uint256 = 0
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
@@ -150,12 +148,12 @@ def get_dy(_i: address, _j: address, _dx: uint256) -> uint256:
 
 @external
 @view
-def get_dx(_i: address, _j: address, _dy: uint256) -> uint256:
+def get_dx(_i: uint256, _j: uint256, _dy: uint256) -> uint256:
     # update rates for from and to assets
     # reverts if either is not part of the pool
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
-    assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
+    assets: DynArray[uint256, MAX_NUM_ASSETS] = [_i, _j]
     supply: uint256 = 0
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
     supply, vb_prod, vb_sum, rates = self._get_rates(assets, self.vb_prod, self.vb_sum)
@@ -189,13 +187,13 @@ def get_dx(_i: address, _j: address, _dy: uint256) -> uint256:
 
 @external
 @nonreentrant('lock')
-def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: address = msg.sender) -> uint256:
+def swap(_i: uint256, _j: uint256, _dx: uint256, _min_dy: uint256, _receiver: address = msg.sender) -> uint256:
     assert _i != _j # dev: same input and output asset
     assert _dx > 0 # dev: zero amount
 
     # update rates for from and to assets
     # reverts if either is not part of the pool
-    assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
+    assets: DynArray[uint256, MAX_NUM_ASSETS] = [_i, _j]
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, True)
@@ -246,19 +244,19 @@ def swap(_i: address, _j: address, _dx: uint256, _min_dy: uint256, _receiver: ad
     self.vb_sum = vb_sum
 
     # transfer tokens
-    assert ERC20(_i).transferFrom(msg.sender, self, _dx, default_return_value=True)
-    assert ERC20(_j).transfer(_receiver, dy, default_return_value=True)
+    assert ERC20(self.assets[_i]).transferFrom(msg.sender, self, _dx, default_return_value=True)
+    assert ERC20(self.assets[_j]).transfer(_receiver, dy, default_return_value=True)
 
     return dy
 
 @external
 @nonreentrant('lock')
-def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _receiver: address = msg.sender) -> uint256:
+def swap_exact_out(_i: uint256, _j: uint256, _dy: uint256, _max_dx: uint256, _receiver: address = msg.sender) -> uint256:
     # update rates for from and to assets
     # reverts if either is not part of the pool
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
-    assets: DynArray[address, MAX_NUM_ASSETS] = [_i, _j]
+    assets: DynArray[uint256, MAX_NUM_ASSETS] = [_i, _j]
     vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, True)
     prev_vb_sum: uint256 = vb_sum
 
@@ -301,8 +299,8 @@ def swap_exact_out(_i: address, _j: address, _dy: uint256, _max_dx: uint256, _re
     self.vb_prod = vb_prod
     self.vb_sum = vb_sum
 
-    assert ERC20(_i).transferFrom(msg.sender, self, dx, default_return_value=True)
-    assert ERC20(_j).transfer(_receiver, _dy, default_return_value=True)
+    assert ERC20(self.assets[_i]).transferFrom(msg.sender, self, dx, default_return_value=True)
+    assert ERC20(self.assets[_j]).transfer(_receiver, _dy, default_return_value=True)
 
     return dx
 
@@ -316,23 +314,21 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
     vb_sum: uint256 = self.vb_sum
 
     # find lowest relative increase in balance
-    assets: DynArray[address, MAX_NUM_ASSETS] = []
+    assets: DynArray[uint256, MAX_NUM_ASSETS] = []
     lowest: uint256 = max_value(uint256)
     has_any: bool = False
-    for i in range(MAX_NUM_ASSETS):
-        if i == num_assets:
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
             break
-        if _amounts[i] > 0:
-            asset: address = self.assets[i]
+        if _amounts[asset] > 0:
             assets.append(asset)
             has_any = True
             if vb_sum > 0 and lowest > 0:
-                lowest = min(_amounts[i] * self.rates[asset] / self.balances[asset], lowest)
+                lowest = min(_amounts[asset] * self.rates[asset] / self.balances[asset], lowest)
         else:
-            assets.append(empty(address))
             lowest = 0
     assert has_any # dev: need to deposit at least one asset
-        
+
     # update rates
     vb_prod, vb_sum = self._update_rates(assets, vb_prod, vb_sum, False)
     prev_supply: uint256 = self.supply
@@ -342,16 +338,14 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
     fee_rate: uint256 = self.fee_rate / 2
     prev_vb_sum: uint256 = vb_sum
     prev_ratios: DynArray[uint256, MAX_NUM_ASSETS] = []
-    for i in range(MAX_NUM_ASSETS):
-        if i == num_assets:
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
             break
 
-        amount: uint256 = _amounts[i]
+        amount: uint256 = _amounts[asset]
         if amount == 0:
             assert prev_supply > 0 # dev: initial deposit amounts must be non-zero
             continue
-
-        asset: address = assets[i]
 
         # update stored virtual balance
         prev_vb: uint256 = self.balances[asset]
@@ -372,8 +366,8 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
             fee: uint256 = (dvb - prev_vb * lowest / PRECISION) * fee_rate / PRECISION
             vb_prod = vb_prod * self._pow_up(prev_vb * PRECISION / (vb - fee), weight) / PRECISION
             vb_sum += dvb - fee
-        assert ERC20(asset).transferFrom(msg.sender, self, amount, default_return_value=True)
-    
+        assert ERC20(self.assets[asset]).transferFrom(msg.sender, self, amount, default_return_value=True)
+
     supply: uint256 = prev_supply
     if prev_supply == 0:
         # initital deposit, calculate necessary variables
@@ -384,12 +378,11 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
     else:
         # check bands
         j: uint256 = 0
-        for i in range(MAX_NUM_ASSETS):
-            if i == num_assets:
+        for asset in range(MAX_NUM_ASSETS):
+            if asset == num_assets:
                 break
-            if _amounts[i] == 0:
+            if _amounts[asset] == 0:
                 continue
-            asset: address = assets[i]
             self._check_bands(prev_ratios[j], self.balances[asset] * PRECISION / vb_sum_final, self.weights[asset])
             j += 1
 
@@ -417,13 +410,7 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
 @external
 @nonreentrant('lock')
 def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
-    # update rates
-    assets: DynArray[address, MAX_NUM_ASSETS] = []
     num_assets: uint256 = self.num_assets
-    for i in range(MAX_NUM_ASSETS):
-        if i == num_assets:
-            break
-        assets.append(self.assets[i])
     vb_prod: uint256 = self.vb_prod
     vb_sum: uint256 = self.vb_sum
 
@@ -434,25 +421,27 @@ def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
     PoolToken(token).burn(msg.sender, _amount)
 
     # update necessary variables and transfer assets
-    for asset in assets:
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
+            break
         prev_bal: uint256 = self.balances[asset]
         dbal: uint256 = prev_bal * _amount / prev_supply
         bal: uint256 = prev_bal - dbal
         vb_prod = vb_prod * prev_supply / supply * self._pow_down(prev_bal * PRECISION / bal, self.weights[asset] & WEIGHT_MASK) / PRECISION
         vb_sum -= dbal
         self.balances[asset] = bal
-        assert ERC20(asset).transfer(_receiver, dbal * PRECISION / self.rates[asset], default_return_value=True)
+        assert ERC20(self.assets[asset]).transfer(_receiver, dbal * PRECISION / self.rates[asset], default_return_value=True)
 
     self.vb_prod = vb_prod
     self.vb_sum = vb_sum
 
 @external
 @nonreentrant('lock')
-def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: address = msg.sender):
+def remove_liquidity_single(_asset: uint256, _amount: uint256, _receiver: address = msg.sender):
     # update rate
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
-    assets: DynArray[address, MAX_NUM_ASSETS] = [_asset]
+    assets: DynArray[uint256, MAX_NUM_ASSETS] = [_asset]
     vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, False)
     prev_vb_sum: uint256 = vb_sum
 
@@ -487,10 +476,9 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
     vb_prod = vb_prod * PRECISION / self._pow_up(vb, weight)
     vb_sum = vb_sum + vb
 
-    for i in range(MAX_NUM_ASSETS):
-        if i == num_assets:
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
             break
-        asset: address = self.assets[i]
         if asset == _asset:
             self._check_bands(prev_vb * PRECISION / prev_vb_sum, vb * PRECISION / vb_sum, self.weights[asset])
         else:
@@ -504,10 +492,10 @@ def remove_liquidity_single(_asset: address, _amount: uint256, _receiver: addres
     self.vb_prod = vb_prod
     self.vb_sum = vb_sum
 
-    assert ERC20(_asset).transfer(_receiver, dx, default_return_value=True)
+    assert ERC20(self.assets[_asset]).transfer(_receiver, dx, default_return_value=True)
 
 @external
-def update_rates(_assets: DynArray[address, MAX_NUM_ASSETS]):
+def update_rates(_assets: DynArray[uint256, MAX_NUM_ASSETS]):
     assert len(_assets) > 0
     self.vb_prod, self.vb_sum = self._update_rates(_assets, self.vb_prod, self.vb_sum, False)
 
@@ -529,20 +517,17 @@ def set_management(_management: address):
 
 @internal
 @view
-def _get_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint256, DynArray[uint256, MAX_NUM_ASSETS]):
+def _get_rates(_assets: DynArray[uint256, MAX_NUM_ASSETS], _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint256, DynArray[uint256, MAX_NUM_ASSETS]):
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
     vb_prod: uint256 = _vb_prod
     vb_sum: uint256 = _vb_sum
-    for i in range(MAX_NUM_ASSETS):
-        if i == len(_assets):
-            break
-        asset: address = _assets[i]
-        if asset == empty(address):
+    for asset in _assets:
+        if asset >= MAX_NUM_ASSETS:
             continue
         provider: address = self.rate_providers[asset]
         assert provider != empty(address) # dev: asset not whitelisted
         prev_rate: uint256 = self.rates[asset]
-        rate: uint256 = RateProvider(provider).rate(asset)
+        rate: uint256 = RateProvider(provider).rate(self.assets[asset])
         assert rate > 0 # dev: no rate
         rates.append(rate)
         if rate == prev_rate:
@@ -559,19 +544,14 @@ def _get_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256, _v
     return supply, vb_prod, vb_sum, rates
 
 @internal
-def _update_rates(_assets: DynArray[address, MAX_NUM_ASSETS], _vb_prod: uint256, _vb_sum: uint256, _force: bool) -> (uint256, uint256):
+def _update_rates(_assets: DynArray[uint256, MAX_NUM_ASSETS], _vb_prod: uint256, _vb_sum: uint256, _force: bool) -> (uint256, uint256):
     vb_prod: uint256 = _vb_prod
     vb_sum: uint256 = _vb_sum
-    for i in range(MAX_NUM_ASSETS):
-        if i == len(_assets):
-            break
-        asset: address = _assets[i]
-        if asset == empty(address):
-            continue
+    for asset in _assets:
         provider: address = self.rate_providers[asset]
         assert provider != empty(address) # dev: asset not whitelisted
         prev_rate: uint256 = self.rates[asset]
-        rate: uint256 = RateProvider(provider).rate(asset)
+        rate: uint256 = RateProvider(provider).rate(self.assets[asset])
         assert rate > 0 # dev: no rate
         if rate == prev_rate:
             continue
@@ -613,9 +593,9 @@ def _update_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (ui
 @pure
 def _check_bands(_prev_ratio: uint256, _ratio: uint256, _weight: uint256):
     if _ratio < shift(_weight, LOWER_BAND_SHIFT) & WEIGHT_MASK:
-        assert _ratio > _prev_ratio
+        assert _ratio > _prev_ratio # dev: ratio below lower band
     elif _ratio > shift(_weight, UPPER_BAND_SHIFT):
-        assert _ratio < _prev_ratio
+        assert _ratio < _prev_ratio # dev: ratio above upper band
 
 # MATH FUNCTIONS
 # make sure to keep in sync with Math.vy
@@ -625,7 +605,9 @@ def _check_bands(_prev_ratio: uint256, _ratio: uint256, _weight: uint256):
 def _calc_w_prod() -> uint256:
     prod: uint256 = PRECISION
     num_assets: uint256 = self.num_assets
-    for asset in self.assets:
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
+            break
         weight: uint256 = self.weights[asset] & WEIGHT_MASK
         prod = prod * self._pow_up(weight / num_assets, weight) / PRECISION
     return prod
@@ -635,13 +617,13 @@ def _calc_w_prod() -> uint256:
 def _calc_vb_prod_sum() -> (uint256, uint256):
     p: uint256 = PRECISION
     s: uint256 = 0
-    for asset in self.assets:
-        if asset == empty(address):
+    num_assets: uint256 = self.num_assets
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
             break
         s += self.balances[asset]
-    num_assets: uint256 = self.num_assets
-    for asset in self.assets:
-        if asset == empty(address):
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
             break
         weight: uint256 = self.weights[asset] & WEIGHT_MASK
         p = p * s / self._pow_down(self.balances[asset] * PRECISION / (weight / num_assets), weight)
@@ -689,7 +671,7 @@ def _calc_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256, _up: boo
 
 @internal
 @view
-def _calc_vb(_j: address, _supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
+def _calc_vb(_j: uint256, _supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
     # y = x_j, sum' = sum(x_i, i != j), prod' = prod(x_i^w_i, i != j)
     # w = product(w_i), v_i = w_i n, f_i = 1/v_i
     # Iteratively find root of g(y) using Newton's method
