@@ -424,9 +424,8 @@ def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
         if i == num_assets:
             break
         assets.append(self.assets[i])
-    vb_prod: uint256 = 0
-    vb_sum: uint256 = 0
-    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, False)
+    vb_prod: uint256 = self.vb_prod
+    vb_sum: uint256 = self.vb_sum
 
     # update supply
     prev_supply: uint256 = self.supply
