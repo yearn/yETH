@@ -449,7 +449,7 @@ def test_rate_update(project, deployer, alice, token):
 
     # update rate of one asset to 110%
     provider.set_rate(assets[0], 110 * PRECISION // 100, sender=deployer)
-    pool.update_rates([0], sender=alice)
+    pool.update_rates(1, sender=alice)
 
     # staking address should have ~10%/4 of token
     expect = amt / n // 10
@@ -459,7 +459,7 @@ def test_rate_update(project, deployer, alice, token):
 
     # adjust rate downwards to 108%
     provider.set_rate(assets[0], 108 * PRECISION // 100, sender=deployer)
-    pool.update_rates([0], sender=alice)
+    pool.update_rates(1, sender=alice)
 
     # staking address should now have ~8%/4 of token
     expect = amt / n * 8 // 100
