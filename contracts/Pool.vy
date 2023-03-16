@@ -189,6 +189,7 @@ def get_dx(_i: uint256, _j: uint256, _dy: uint256) -> uint256:
 @nonreentrant('lock')
 def swap(_i: uint256, _j: uint256, _dx: uint256, _min_dy: uint256, _receiver: address = msg.sender) -> uint256:
     assert _i != _j # dev: same input and output asset
+    assert _i < MAX_NUM_ASSETS and _j < MAX_NUM_ASSETS # dev: index out of bounds
     assert _dx > 0 # dev: zero amount
 
     # update rates for from and to assets
@@ -196,7 +197,7 @@ def swap(_i: uint256, _j: uint256, _dx: uint256, _min_dy: uint256, _receiver: ad
     assets: DynArray[uint256, MAX_NUM_ASSETS] = [_i, _j]
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
-    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, True)
+    vb_prod, vb_sum = self._update_rates((_i + 1) + shift(_j + 1, 8), self.vb_prod, self.vb_sum, True)
     prev_vb_sum: uint256 = vb_sum
 
     prev_vbx: uint256 = self.balances[_i]
@@ -252,12 +253,15 @@ def swap(_i: uint256, _j: uint256, _dx: uint256, _min_dy: uint256, _receiver: ad
 @external
 @nonreentrant('lock')
 def swap_exact_out(_i: uint256, _j: uint256, _dy: uint256, _max_dx: uint256, _receiver: address = msg.sender) -> uint256:
+    assert _i != _j # dev: same input and output asset
+    assert _i < MAX_NUM_ASSETS and _j < MAX_NUM_ASSETS # dev: index out of bounds
+    assert _dy > 0 # dev: zero amount
+
     # update rates for from and to assets
     # reverts if either is not part of the pool
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
-    assets: DynArray[uint256, MAX_NUM_ASSETS] = [_i, _j]
-    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, True)
+    vb_prod, vb_sum = self._update_rates((_i + 1) + shift(_j + 1, 8), self.vb_prod, self.vb_sum, True)
     prev_vb_sum: uint256 = vb_sum
 
     prev_vbx: uint256 = self.balances[_i]
@@ -314,20 +318,20 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
     vb_sum: uint256 = self.vb_sum
 
     # find lowest relative increase in balance
-    assets: DynArray[uint256, MAX_NUM_ASSETS] = []
+    assets: uint256 = 0
     lowest: uint256 = max_value(uint256)
-    has_any: bool = False
+    sh: int128 = 0
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
         if _amounts[asset] > 0:
-            assets.append(asset)
-            has_any = True
+            assets += shift(asset + 1, sh)
+            sh += 8
             if vb_sum > 0 and lowest > 0:
                 lowest = min(_amounts[asset] * self.rates[asset] / self.balances[asset], lowest)
         else:
             lowest = 0
-    assert has_any # dev: need to deposit at least one asset
+    assert sh >0 # dev: need to deposit at least one asset
 
     # update rates
     vb_prod, vb_sum = self._update_rates(assets, vb_prod, vb_sum, False)
@@ -438,11 +442,12 @@ def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
 @external
 @nonreentrant('lock')
 def remove_liquidity_single(_asset: uint256, _amount: uint256, _receiver: address = msg.sender):
+    assert _asset < MAX_NUM_ASSETS # dev: index out of bounds
+
     # update rate
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
-    assets: DynArray[uint256, MAX_NUM_ASSETS] = [_asset]
-    vb_prod, vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum, False)
+    vb_prod, vb_sum = self._update_rates(_asset + 1, self.vb_prod, self.vb_sum, False)
     prev_vb_sum: uint256 = vb_sum
 
     # update supply
@@ -495,8 +500,8 @@ def remove_liquidity_single(_asset: uint256, _amount: uint256, _receiver: addres
     assert ERC20(self.assets[_asset]).transfer(_receiver, dx, default_return_value=True)
 
 @external
-def update_rates(_assets: DynArray[uint256, MAX_NUM_ASSETS]):
-    assert len(_assets) > 0
+def update_rates(_assets: uint256):
+    assert _assets & 255 > 0
     self.vb_prod, self.vb_sum = self._update_rates(_assets, self.vb_prod, self.vb_sum, False)
 
 @external
@@ -544,10 +549,14 @@ def _get_rates(_assets: DynArray[uint256, MAX_NUM_ASSETS], _vb_prod: uint256, _v
     return supply, vb_prod, vb_sum, rates
 
 @internal
-def _update_rates(_assets: DynArray[uint256, MAX_NUM_ASSETS], _vb_prod: uint256, _vb_sum: uint256, _force: bool) -> (uint256, uint256):
+def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256, _force: bool) -> (uint256, uint256):
     vb_prod: uint256 = _vb_prod
     vb_sum: uint256 = _vb_sum
-    for asset in _assets:
+    for i in range(MAX_NUM_ASSETS):
+        asset: uint256 = shift(_assets, -8 * convert(i, int128)) & 255
+        if asset == 0:
+            break
+        asset -= 1
         provider: address = self.rate_providers[asset]
         assert provider != empty(address) # dev: asset not whitelisted
         prev_rate: uint256 = self.rates[asset]
@@ -646,11 +655,11 @@ def _calc_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256, _up: boo
 
     num_assets: uint256 = self.num_assets
     for _ in range(255):
-        sp: uint256 = (l - s * r) / d
+        sp: uint256 = unsafe_div(unsafe_sub(l, unsafe_mul(s, r)), d) # (l - s * r) / d
         for i in range(MAX_NUM_ASSETS):
             if i == num_assets:
                 break
-            r = r * sp / s
+            r = unsafe_div(unsafe_mul(r, sp), s) # r * sp / s
         if sp >= s:
             if (sp - s) * PRECISION / s <= MAX_POW_REL_ERR:
                 if _up:
@@ -713,7 +722,8 @@ def _pow_up(_x: uint256, _y: uint256) -> uint256:
     p: uint256 = self._pow(_x, _y)
     if p == 0:
         return 0
-    return p + (p * MAX_POW_REL_ERR - 1) / PRECISION + 1
+    # p + (p * MAX_POW_REL_ERR - 1) / PRECISION + 1
+    return unsafe_add(unsafe_add(p, unsafe_div(unsafe_sub(unsafe_mul(p, MAX_POW_REL_ERR), 1), PRECISION)), 1)
 
 @internal
 @pure
@@ -722,20 +732,21 @@ def _pow_down(_x: uint256, _y: uint256) -> uint256:
     p: uint256 = self._pow(_x, _y)
     if p == 0:
         return 0
-    e: uint256 = (p * MAX_POW_REL_ERR - 1) / PRECISION + 1
+    # (p * MAX_POW_REL_ERR - 1) / PRECISION + 1
+    e: uint256 = unsafe_add(unsafe_div(unsafe_sub(unsafe_mul(p, MAX_POW_REL_ERR), 1), PRECISION), 1)
     if p < e:
         return 0
-    return p - e
+    return unsafe_sub(p, e)
 
 @internal
 @pure
 def _pow(_x: uint256, _y: uint256) -> uint256:
     # x^y
     if _y == 0:
-        return convert(E18, uint256)
+        return convert(E18, uint256) # x^0 == 1
 
     if _x == 0:
-        return 0
+        return 0 # 0^y == 0
     
     assert shift(_x, -255) == 0 # dev: x out of bounds
     assert _y < MILD_EXP_BOUND # dev: y out of bounds
@@ -746,49 +757,50 @@ def _pow(_x: uint256, _y: uint256) -> uint256:
     l: int256 = 0
     if x > LOG36_LOWER and x < LOG36_UPPER:
         l = self._log36(x)
-        l = l / E18 * y + (l % E18) * y / E18
+        # l / E18 * y + (l % E18) * y / E18
+        l = unsafe_add(unsafe_mul(unsafe_div(l, E18), y), unsafe_div(unsafe_mul(l % E18, y), E18))
     else:
-        l = self._log(x) * y
-    l /= E18
+        l = unsafe_mul(self._log(x), y)
+    l = unsafe_div(l, E18)
     return convert(self._exp(l), uint256)
 
 @internal
 @pure
 def _log36(_x: int256) -> int256:
-    x: int256 = _x * E18
+    x: int256 = unsafe_mul(_x, E18)
     
     # Taylor series
     # z = (x - 1) / (x + 1)
     # c = log x = 2 * sum(z^(2n + 1) / (2n + 1))
 
-    z: int256 = (x - E36) * E36 / (x + E36)
-    zsq: int256 = z * z / E36
+    z: int256 = unsafe_div(unsafe_mul(unsafe_sub(x, E36), E36), unsafe_add(x, E36)) # (x - E36) * E36 / (x + E36)
+    zsq: int256 = unsafe_div(unsafe_mul(z, z), E36)
     n: int256 = z
     c: int256 = z
 
-    n = n * zsq / E36
-    c += n / 3
-    n = n * zsq / E36
-    c += n / 5
-    n = n * zsq / E36
-    c += n / 7
-    n = n * zsq / E36
-    c += n / 9
-    n = n * zsq / E36
-    c += n / 11
-    n = n * zsq / E36
-    c += n / 13
-    n = n * zsq / E36
-    c += n / 15
+    n = unsafe_div(unsafe_mul(n, zsq), E36) # n * zsq / E36
+    c = unsafe_add(c, n / 3)
+    n = unsafe_div(unsafe_mul(n, zsq), E36)
+    c = unsafe_add(c, n / 5)
+    n = unsafe_div(unsafe_mul(n, zsq), E36)
+    c = unsafe_add(c, n / 7)
+    n = unsafe_div(unsafe_mul(n, zsq), E36)
+    c = unsafe_add(c, n / 9)
+    n = unsafe_div(unsafe_mul(n, zsq), E36)
+    c = unsafe_add(c, n / 11)
+    n = unsafe_div(unsafe_mul(n, zsq), E36)
+    c = unsafe_add(c, n / 13)
+    n = unsafe_div(unsafe_mul(n, zsq), E36)
+    c = unsafe_add(c, n / 15)
 
-    return c * 2
+    return unsafe_mul(c, 2)
 
 @internal
 @pure
 def _log(_a: int256) -> int256:
     if _a < E18:
         # 1/a > 1, log(a) = -log(1/a)
-        return -self.__log(E18 * E18 / _a)
+        return -self.__log(unsafe_div(unsafe_mul(E18, E18), _a))
     return self.__log(_a)
 
 @internal
@@ -801,69 +813,69 @@ def __log(_a: int256) -> int256:
     s: int256 = 0
 
     # divide out a_ns
-    if a >= A0 * E18:
-        a /= A0
-        s += X0
-    if a >= A1 * E18:
-        a /= A1
-        s += X1
+    if a >= unsafe_mul(A0, E18):
+        a = unsafe_div(a, A0)
+        s = unsafe_add(s, X0)
+    if a >= unsafe_mul(A1, E18):
+        a = unsafe_div(a, A1)
+        s = unsafe_add(s, X1)
     
     # other terms are in 20 decimals
-    a *= 100
-    s *= 100
+    a = unsafe_mul(a, 100)
+    s = unsafe_mul(s, 100)
 
     if a >= A2:
-        a = a * E20 / A2
-        s += X2
+        a = unsafe_div(unsafe_mul(a, E20), A2) # a * E20 / A2
+        s = unsafe_add(s, X2)
     if a >= A3:
-        a = a * E20 / A3
-        s += X3
+        a = unsafe_div(unsafe_mul(a, E20), A3)
+        s = unsafe_add(s, X3)
     if a >= A4:
-        a = a * E20 / A4
-        s += X4
+        a = unsafe_div(unsafe_mul(a, E20), A4)
+        s = unsafe_add(s, X4)
     if a >= A5:
-        a = a * E20 / A5
-        s += X5
+        a = unsafe_div(unsafe_mul(a, E20), A5)
+        s = unsafe_add(s, X5)
     if a >= A6:
-        a = a * E20 / A6
-        s += X6
+        a = unsafe_div(unsafe_mul(a, E20), A6)
+        s = unsafe_add(s, X6)
     if a >= A7:
-        a = a * E20 / A7
-        s += X7
+        a = unsafe_div(unsafe_mul(a, E20), A7)
+        s = unsafe_add(s, X7)
     if a >= A8:
-        a = a * E20 / A8
-        s += X8
+        a = unsafe_div(unsafe_mul(a, E20), A8)
+        s = unsafe_add(s, X8)
     if a >= A9:
-        a = a * E20 / A9
-        s += X9
+        a = unsafe_div(unsafe_mul(a, E20), A9)
+        s = unsafe_add(s, X9)
     if a >= A10:
-        a = a * E20 / A10
-        s += X10
+        a = unsafe_div(unsafe_mul(a, E20), A10)
+        s = unsafe_add(s, X10)
     if a >= A11:
-        a = a * E20 / A11
-        s += X11
+        a = unsafe_div(unsafe_mul(a, E20), A11)
+        s = unsafe_add(s, X11)
 
     # a < A11 (1.06), taylor series for remainder
     # z = (a - 1) / (a + 1)
     # c = log a = 2 * sum(z^(2n + 1) / (2n + 1))
-    z: int256 = (a - E20) * E20 / (a + E20)
-    zsq: int256 = z * z / E20
+    z: int256 = unsafe_div(unsafe_mul(unsafe_sub(a, E20),  E20), unsafe_add(a, E20)) # (a - E20) * E20 / (a + E20)
+    zsq: int256 = unsafe_div(unsafe_mul(z, z), E20) # z * z / E20
     n: int256 = z
     c: int256 = z
 
-    n = n * zsq / E20
-    c += n / 3
-    n = n * zsq / E20
-    c += n / 5
-    n = n * zsq / E20
-    c += n / 7
-    n = n * zsq / E20
-    c += n / 9
-    n = n * zsq / E20
-    c += n / 11
+    n = unsafe_div(unsafe_mul(n, zsq), E20) # n * zsq / E20
+    c = unsafe_add(c, unsafe_div(n, 3)) # c + n / 3
+    n = unsafe_div(unsafe_mul(n, zsq), E20)
+    c = unsafe_add(c, unsafe_div(n, 5))
+    n = unsafe_div(unsafe_mul(n, zsq), E20)
+    c = unsafe_add(c, unsafe_div(n, 7))
+    n = unsafe_div(unsafe_mul(n, zsq), E20)
+    c = unsafe_add(c, unsafe_div(n, 9))
+    n = unsafe_div(unsafe_mul(n, zsq), E20)
+    c = unsafe_add(c, unsafe_div(n, 11))
 
-    c *= 2
-    return (s + c) / 100
+    c = unsafe_mul(c, 2)
+    return unsafe_div(unsafe_add(s, c), 100) # (s + c) / 100
 
 @internal
 @pure
@@ -871,7 +883,7 @@ def _exp(_x: int256) -> int256:
     assert _x >= MIN_NAT_EXP and _x <= MAX_NAT_EXP
     if _x < 0:
         # exp(-x) = 1/exp(x)
-        return E18 * E18 / self.__exp(-_x)
+        return unsafe_mul(E18, E18) / self.__exp(-_x)
     return self.__exp(_x)
 
 @internal
@@ -886,67 +898,68 @@ def __exp(_x: int256) -> int256:
     # subtract out x_ns
     f: int256 = 1
     if x >= X0:
-        x -= X0
+        x = unsafe_sub(x, X0)
         f = A0
     elif x >= X1:
-        x -= X1
+        x = unsafe_sub(x, X1)
         f = A1
 
     # other terms are in 20 decimals
-    x *= 100
+    x = unsafe_mul(x, 100)
 
     p: int256 = E20
     if x >= X2:
-        x -= X2
-        p = p * A2 / E20
+        x = unsafe_sub(x, X2)
+        p = unsafe_div(unsafe_mul(p, A2), E20) # p * A2 / E20
     if x >= X3:
-        x -= X3
-        p = p * A3 / E20
+        x = unsafe_sub(x, X3)
+        p = unsafe_div(unsafe_mul(p, A3), E20)
     if x >= X4:
-        x -= X4
-        p = p * A4 / E20
+        x = unsafe_sub(x, X4)
+        p = unsafe_div(unsafe_mul(p, A4), E20)
     if x >= X5:
-        x -= X5
-        p = p * A5 / E20
+        x = unsafe_sub(x, X5)
+        p = unsafe_div(unsafe_mul(p, A5), E20)
     if x >= X6:
-        x -= X6
-        p = p * A6 / E20
+        x = unsafe_sub(x, X6)
+        p = unsafe_div(unsafe_mul(p, A6), E20)
     if x >= X7:
-        x -= X7
-        p = p * A7 / E20
+        x = unsafe_sub(x, X7)
+        p = unsafe_div(unsafe_mul(p, A7), E20)
     if x >= X8:
-        x -= X8
-        p = p * A8 / E20
+        x = unsafe_sub(x, X8)
+        p = unsafe_div(unsafe_mul(p, A8), E20)
     if x >= X9:
-        x -= X9
-        p = p * A9 / E20
+        x = unsafe_sub(x, X9)
+        p = unsafe_div(unsafe_mul(p, A9), E20)
     
     # x < X9 (0.25), taylor series for remainder
     # c = e^x = sum(x^n / n!)
     n: int256 = x
-    c: int256 = E20 + x
+    c: int256 = unsafe_add(E20, x)
 
-    n = n * x / E20 / 2
-    c += n
-    n = n * x / E20 / 3
-    c += n
-    n = n * x / E20 / 4
-    c += n
-    n = n * x / E20 / 5
-    c += n
-    n = n * x / E20 / 6
-    c += n
-    n = n * x / E20 / 7
-    c += n
-    n = n * x / E20 / 8
-    c += n
-    n = n * x / E20 / 9
-    c += n
-    n = n * x / E20 / 10
-    c += n
-    n = n * x / E20 / 11
-    c += n
-    n = n * x / E20 / 12
-    c += n
+    n = unsafe_div(unsafe_div(unsafe_mul(n, x), E20), 2) # n * x / E20 / 2
+    c = unsafe_add(c, n)
+    n = unsafe_div(unsafe_div(unsafe_mul(n, x), E20), 3)
+    c = unsafe_add(c, n)
+    n = unsafe_div(unsafe_div(unsafe_mul(n, x), E20), 4)
+    c = unsafe_add(c, n)
+    n = unsafe_div(unsafe_div(unsafe_mul(n, x), E20), 5)
+    c = unsafe_add(c, n)
+    n = unsafe_div(unsafe_div(unsafe_mul(n, x), E20), 6)
+    c = unsafe_add(c, n)
+    n = unsafe_div(unsafe_div(unsafe_mul(n, x), E20), 7)
+    c = unsafe_add(c, n)
+    n = unsafe_div(unsafe_div(unsafe_mul(n, x), E20), 8)
+    c = unsafe_add(c, n)
+    n = unsafe_div(unsafe_div(unsafe_mul(n, x), E20), 9)
+    c = unsafe_add(c, n)
+    n = unsafe_div(unsafe_div(unsafe_mul(n, x), E20), 10)
+    c = unsafe_add(c, n)
+    n = unsafe_div(unsafe_div(unsafe_mul(n, x), E20), 11)
+    c = unsafe_add(c, n)
+    n = unsafe_div(unsafe_div(unsafe_mul(n, x), E20), 12)
+    c = unsafe_add(c, n)
 
-    return p * c / E20 * f / 100
+    # p * c / E20 * f / 100
+    return unsafe_div(unsafe_mul(unsafe_div(unsafe_mul(p, c), E20), f), 100)
