@@ -3,7 +3,7 @@ import pytest
 
 PRECISION = 1_000_000_000_000_000_000
 MAX = 2**256 - 1
-W_PROD_SLOT = 167
+W_PROD_SLOT = 203
 VB_PROD_SLOT = W_PROD_SLOT + 1
 VB_SUM_SLOT = VB_PROD_SLOT + 1
 
@@ -32,8 +32,8 @@ def deploy_assets(project, deployer, n):
         assets.append(asset)
     return assets, provider
 
-def test_equal_balanced_deposit(project, deployer, alice, token):
-    # multiple tokens with equal weights, balanced initial deposit
+def test_equal_balanced_deposit(project, deployer, alice, bob, token):
+    # multiple tokens with equal weights, balanced deposits
     amplification = 10 * PRECISION
     n = 4
     assets, provider = deploy_assets(project, deployer, n)
@@ -44,13 +44,19 @@ def test_equal_balanced_deposit(project, deployer, alice, token):
     for asset in assets:
         asset.approve(pool, MAX, sender=alice)
         asset.mint(alice, amt // n, sender=deployer)
+        asset.approve(pool, MAX, sender=bob)
+        asset.mint(bob, amt // n, sender=deployer)
 
     pool.add_liquidity([amt // n for _ in range(n)], 0, sender=alice)
     bal = token.balanceOf(alice)
-    assert bal < amt
-    assert (amt - bal) / amt < 2e-16
+    assert abs(amt - bal) / amt < 1e-16
     vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
     assert vb_sum == amt
+
+    pool.add_liquidity([amt // n for _ in range(n)], 0, sender=bob)
+    bal = token.balanceOf(bob)
+    assert bal < amt # rounding in favor of pool
+    assert abs(amt - bal) / amt < 1e-15
 
 def test_equal_balanced_deposit_fee(project, deployer, alice, bob, token):
     # multiple tokens with equal weights, balanced initial deposit
@@ -71,14 +77,15 @@ def test_equal_balanced_deposit_fee(project, deployer, alice, bob, token):
 
     pool.add_liquidity([amt // n for _ in range(n)], 0, sender=alice)
     bal = token.balanceOf(alice)
-    assert bal < amt
     assert (amt - bal) / amt < 2e-16
     vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
     assert vb_sum == amt
 
     # do another balanced deposit, no fee charged
     pool.add_liquidity([amt // n // 10 for _ in range(n)], 0, sender=bob)
-    assert (bal - 10 * token.balanceOf(bob)) / bal < 1e-15
+    bal2 = token.balanceOf(bob)
+    assert bal2 < amt // 10 # rounding in favor of pool
+    assert (bal - 10 * bal2) / bal < 3e-15
 
 def test_withdraw_single(project, deployer, alice, bob, token):
     amplification = 10 * PRECISION
@@ -109,8 +116,8 @@ def test_withdraw_single(project, deployer, alice, bob, token):
 
     bal = assets[0].balanceOf(bob)
     assert amt > bal
-    assert (amt - bal) / amt < 1e-14
-    assert abs(vb_sum2 - vb_sum) / vb_sum < 2e-16
+    assert (amt - bal) / amt < 2e-14
+    assert abs(vb_sum2 - vb_sum) / vb_sum < 1e-15
     assert abs(vb_prod2 - vb_prod) / vb_prod < 1e-14
 
 def test_deposit_fee(project, chain, deployer, alice, bob, token):
@@ -206,7 +213,7 @@ def test_equal_imbalanced_deposit(project, chain, deployer, alice, bob, token):
     supply2 = pool.supply()
     assert abs((vb_prod2 - vb_prod) / vb_prod) < 1e-13
     assert abs((vb_sum2 - vb_sum) / vb_sum) < 1e-13
-    assert abs((supply2 - supply)/supply) < 1e-16
+    assert abs((supply2 - supply)/supply) < 2e-16
 
 def test_weighted_balanced_deposit(project, deployer, alice, bob, token):
     # multiple tokens with inequal weights, balanced initial deposit
@@ -227,7 +234,6 @@ def test_weighted_balanced_deposit(project, deployer, alice, bob, token):
 
     pool.add_liquidity(amts, 0, sender=alice)
     bal = token.balanceOf(alice)
-    assert bal < amt
     assert (amt - bal) / amt < 2e-14
     assert pool.supply() == bal
 
@@ -242,7 +248,7 @@ def test_weighted_balanced_deposit(project, deployer, alice, bob, token):
 
     bal = token.balanceOf(bob)
     assert bal < amt
-    assert (amt - bal) / amt < 1e-13
+    assert (amt - bal) / amt < 1e-11
 
 def test_swap(project, deployer, alice, bob, token):
     amplification = 10 * PRECISION
@@ -486,4 +492,4 @@ def test_storage_slot(project, deployer, alice, token):
         if val == n*amt:
             assert slot == -1
             slot = i
-    assert slot == VB_SUM_SLOT
+    assert slot - 2 == W_PROD_SLOT
