@@ -91,7 +91,7 @@ def __init__(
     _weights: DynArray[uint256, MAX_NUM_ASSETS]
 ):
     num_assets: uint256 = len(_assets)
-    assert num_assets > 0
+    assert num_assets >= 2
     assert len(_rate_providers) == num_assets and len(_weights) == num_assets
 
     token = _token
@@ -111,6 +111,7 @@ def __init__(
         weight_sum += _weights[asset]
     assert weight_sum == PRECISION
 
+    self.ramp_step = 1
     self.management = msg.sender
 
 @external
@@ -520,13 +521,12 @@ def update_rates(_assets: uint256):
 def update_weights():
     updated: bool = False
     vb_prod: uint256 = 0
-    vb_sum: uint256 = 0
-    vb_prod, vb_sum, updated = self._update_weights(self.vb_prod, self.vb_sum)
-    if updated:
+    vb_sum: uint256 = self.vb_sum
+    vb_prod, updated = self._update_weights(self.vb_prod, vb_sum)
+    if updated and vb_sum > 0:
         supply: uint256 = 0
         supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
         self.vb_prod = vb_prod
-        self.vb_sum = vb_sum
 
 @external
 def set_fee_rate(_fee_rate: uint256):
@@ -546,39 +546,41 @@ def set_weight_bands(_assets: DynArray[uint256, MAX_NUM_ASSETS], _lower: DynArra
         self.weights[asset] = self._pack_weight(num_assets, weight, _lower[asset], _upper[asset]) # performs bounds checks
 
 @external
-def set_ramp(_duration: uint256, _amplification: uint256, _target_weights: DynArray[uint256, MAX_NUM_ASSETS], _start: uint256 = block.timestamp):
+def set_ramp(_duration: uint256, _amplification: uint256, _weights: DynArray[uint256, MAX_NUM_ASSETS], _start: uint256 = block.timestamp):
     assert msg.sender == self.management
 
     num_assets: uint256 = self.num_assets
     assert _amplification > 0
-    assert len(_target_weights) == num_assets
+    assert len(_weights) == num_assets
     assert _start >= block.timestamp
 
     updated: bool = False
     vb_prod: uint256 = 0
-    vb_sum: uint256 = 0
-    vb_prod, vb_sum, updated = self._update_weights(self.vb_prod, self.vb_sum)
+    vb_sum: uint256 = self.vb_sum
+    vb_prod, updated = self._update_weights(self.vb_prod, vb_sum)
     if updated:
         supply: uint256 = 0
         supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
         self.vb_prod = vb_prod
-        self.vb_sum = vb_sum
     
     assert self.ramp_last_time == 0 # dev: ramp active
 
+    self.ramp_last_time = _start
+    self.ramp_stop_time = _start + _duration
     self.target_amplification = _amplification
     total: uint256 = 0
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
-        assert _target_weights[asset] < PRECISION
-        total += _target_weights[asset]
-        self.target_weights[asset] = _target_weights[asset] * num_assets
-    assert total == PRECISION
+        assert _weights[asset] < PRECISION
+        total += _weights[asset]
+        self.target_weights[asset] = _weights[asset] * num_assets
+    assert total == PRECISION # dev: weights dont add up
 
 @external
 def set_ramp_step(_ramp_step: uint256):
     assert msg.sender == self.management
+    assert _ramp_step > 0
     self.ramp_step = _ramp_step
 
 @external
@@ -636,9 +638,9 @@ def _get_rates(_assets: DynArray[uint256, MAX_NUM_ASSETS], _vb_prod: uint256, _v
 @internal
 def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256):
     vb_prod: uint256 = 0
-    vb_sum: uint256 = 0
+    vb_sum: uint256 = _vb_sum
     updated: bool = False
-    vb_prod, vb_sum, updated = self._update_weights(_vb_prod, _vb_sum)
+    vb_prod, updated = self._update_weights(_vb_prod, vb_sum)
     num_assets: uint256 = self.num_assets
     for i in range(MAX_NUM_ASSETS):
         asset: uint256 = shift(_assets, unsafe_mul(-8, convert(i, int128))) & 255
@@ -653,7 +655,7 @@ def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uin
             continue
         self.rates[asset] = rate
 
-        if prev_rate > 0:
+        if prev_rate > 0 and vb_sum > 0:
             # factor out old rate and factor in new
             vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, self.weights[asset] & WEIGHT_MASK) / PRECISION
 
@@ -677,16 +679,22 @@ def _get_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, DynA
     return _vb_prod, _vb_sum, weights, False
 
 @internal
-def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, bool):
+def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, bool):
     span: uint256 = self.ramp_last_time
-    if span == 0 or span > block.timestamp or block.timestamp - span < self.ramp_step:
-        return _vb_prod, _vb_sum, False
-
     duration: uint256 = self.ramp_stop_time
+    if span == 0 or span > block.timestamp or (block.timestamp - span < self.ramp_step and duration > block.timestamp):
+        # scenarios:
+        #  1) no ramp is active
+        #  2) ramp is scheduled for in the future
+        #  3) weights have been updated too recently and ramp hasnt finished yet
+        return _vb_prod, False
+
     if block.timestamp < duration:
+        # ramp in progress
         duration -= span
         self.ramp_last_time = block.timestamp
     else:
+        # ramp has finished
         duration = 0
         self.ramp_last_time = 0
         self.ramp_stop_time = 0
@@ -718,12 +726,11 @@ def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, b
             else:
                 self.weights[asset] = current + (target - current) * span / duration
 
-    self.w_prod = self._calc_w_prod()
     vb_prod: uint256 = 0
-    vb_sum: uint256 = 0
-    vb_prod, vb_sum = self._calc_vb_prod_sum()
-
-    return vb_prod, vb_sum, True
+    if _vb_sum > 0:
+        self.w_prod = self._calc_w_prod()
+        vb_prod = self._calc_vb_prod(_vb_sum)
+    return vb_prod, True
 
 @internal
 def _update_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256):
@@ -774,25 +781,35 @@ def _calc_w_prod() -> uint256:
         if asset == num_assets:
             break
         weight: uint256 = self.weights[asset] & WEIGHT_MASK
-        prod = prod * self._pow_up(weight / num_assets, weight) / PRECISION
+        prod = unsafe_div(unsafe_mul(prod, self._pow_up(unsafe_div(weight, num_assets), weight)), PRECISION)
     return prod
 
 @internal
 @view
 def _calc_vb_prod_sum() -> (uint256, uint256):
-    p: uint256 = PRECISION
     s: uint256 = 0
     num_assets: uint256 = self.num_assets
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
-        s += self.balances[asset]
+        s = unsafe_add(s, self.balances[asset])
+    p: uint256 = self._calc_vb_prod(s)
+    return p, s
+
+@internal
+@view
+def _calc_vb_prod(_s: uint256) -> uint256:
+    num_assets: uint256 = self.num_assets
+    p: uint256 = PRECISION
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
         weight: uint256 = self.weights[asset] & WEIGHT_MASK
-        p = p * s / self._pow_down(self.balances[asset] * PRECISION / (weight / num_assets), weight)
-    return p, s
+        vb: uint256 = self.balances[asset]
+        assert weight > 0 and vb > 0 # dev: borked
+        # p = product(D / (vb_i / w_i)^(w_i n))
+        p = unsafe_div(unsafe_mul(p, _s), self._pow_down(unsafe_div(unsafe_mul(vb, PRECISION), unsafe_div(weight, num_assets)), weight))
+    return p
 
 @internal
 @view

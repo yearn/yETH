@@ -474,6 +474,7 @@ def test_rate_update(project, deployer, alice, token):
     assert (expect - bal) / expect < 1e-4 # small penalty because pool is still out of balance
 
 def test_storage_slot(project, deployer, alice, token):
+    # quickly find storage slot of certain variables required in other tests
     amplification = 10 * PRECISION
     n = 2
     assets, provider = deploy_assets(project, deployer, n)
@@ -493,3 +494,28 @@ def test_storage_slot(project, deployer, alice, token):
             assert slot == -1
             slot = i
     assert slot - 2 == W_PROD_SLOT
+
+def test_ramp_weight_empty(project, deployer, alice, token):
+    # weights can be updated when pool is empty
+    amplification = 10 * PRECISION
+    n = 5
+    assets, provider = deploy_assets(project, deployer, n)
+    weights = [PRECISION//n for _ in range(n)]
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], weights, sender=deployer)
+    pool.set_staking(alice, sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    diff = PRECISION//100
+    weights[0] -= 4 * diff
+    for i in range(1, n):
+        weights[i] += diff
+    pool.set_ramp(0, amplification, weights, sender=deployer)
+    pool.update_weights(sender=deployer)
+    for i in range(n):
+        assert pool.weights(i) // n == weights[i]
+    w_prod = to_int(project.provider.get_storage_at(pool.address, W_PROD_SLOT))
+    vb_prod = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
+    vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    assert w_prod == 0
+    assert vb_prod == 0
+    assert vb_sum == 0
