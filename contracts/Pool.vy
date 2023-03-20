@@ -420,35 +420,37 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
 
 @external
 @nonreentrant('lock')
-def remove_liquidity(_amount: uint256, _receiver: address = msg.sender):
+def remove_liquidity(_lp_amount: uint256, _min_amounts: DynArray[uint256, MAX_NUM_ASSETS], _receiver: address = msg.sender):
     num_assets: uint256 = self.num_assets
     vb_prod: uint256 = self.vb_prod
     vb_sum: uint256 = self.vb_sum
 
     # update supply
     prev_supply: uint256 = self.supply
-    supply: uint256 = prev_supply - _amount
+    supply: uint256 = prev_supply - _lp_amount
     self.supply = supply
-    PoolToken(token).burn(msg.sender, _amount)
+    PoolToken(token).burn(msg.sender, _lp_amount)
 
     # update necessary variables and transfer assets
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
         prev_bal: uint256 = self.balances[asset]
-        dbal: uint256 = prev_bal * _amount / prev_supply
+        dbal: uint256 = prev_bal * _lp_amount / prev_supply
         bal: uint256 = prev_bal - dbal
         vb_prod = vb_prod * prev_supply / supply * self._pow_down(prev_bal * PRECISION / bal, self.weights[asset] & WEIGHT_MASK) / PRECISION
         vb_sum -= dbal
         self.balances[asset] = bal
-        assert ERC20(self.assets[asset]).transfer(_receiver, dbal * PRECISION / self.rates[asset], default_return_value=True)
+        amount: uint256 = dbal * PRECISION / self.rates[asset]
+        assert amount >= _min_amounts[asset] # dev: slippage
+        assert ERC20(self.assets[asset]).transfer(_receiver, amount, default_return_value=True)
 
     self.vb_prod = vb_prod
     self.vb_sum = vb_sum
 
 @external
 @nonreentrant('lock')
-def remove_liquidity_single(_asset: uint256, _amount: uint256, _receiver: address = msg.sender):
+def remove_liquidity_single(_asset: uint256, _lp_amount: uint256, _min_amount: uint256, _receiver: address = msg.sender):
     assert _asset < MAX_NUM_ASSETS # dev: index out of bounds
 
     # update rate
@@ -459,9 +461,9 @@ def remove_liquidity_single(_asset: uint256, _amount: uint256, _receiver: addres
 
     # update supply
     prev_supply: uint256 = self.supply
-    supply: uint256 = prev_supply - _amount
+    supply: uint256 = prev_supply - _lp_amount
     self.supply = supply
-    PoolToken(token).burn(msg.sender, _amount)
+    PoolToken(token).burn(msg.sender, _lp_amount)
 
     prev_vb: uint256 = self.balances[_asset]
     weight: uint256 = self.weights[_asset] & WEIGHT_MASK
@@ -482,6 +484,7 @@ def remove_liquidity_single(_asset: uint256, _amount: uint256, _receiver: addres
     dvb -= fee
     vb += fee
     dx: uint256 = dvb * PRECISION / self.rates[_asset]
+    assert dx > _min_amount # dev: slippage
 
     # update variables
     self.balances[_asset] = vb
