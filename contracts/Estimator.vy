@@ -26,7 +26,6 @@ pool: public(immutable(Pool))
 
 PRECISION: constant(uint256) = 1_000_000_000_000_000_000
 MAX_NUM_ASSETS: constant(uint256) = 32
-ALL_ASSETS_FLAG: constant(uint256) = 14528991250861404666834535435384615765856667510756806797353855100662256435713
 WEIGHT_MASK: constant(uint256) = 2**85 - 1
 LOWER_BAND_SHIFT: constant(int128) = -85
 UPPER_BAND_SHIFT: constant(int128) = -170
@@ -243,14 +242,59 @@ def get_add_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
 
 @external
 @view
-def get_remove_lp(_amount: uint256) -> DynArray[uint256, MAX_NUM_ASSETS]:
+def get_remove_lp(_lp_amount: uint256) -> DynArray[uint256, MAX_NUM_ASSETS]:
     amounts: DynArray[uint256, MAX_NUM_ASSETS] = []
+    num_assets: uint256 = pool.num_assets()
+    prev_supply: uint256 = pool.supply()
+    assert _lp_amount <= prev_supply
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
+            break
+        prev_bal: uint256 = pool.balances(asset)
+        dbal: uint256 = prev_bal * _lp_amount / prev_supply
+        amount: uint256 = dbal * PRECISION / pool.rates(asset)
+        amounts.append(amount)
+
     return amounts
 
 @external
 @view
-def get_remove_single_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
-    return 0
+def get_remove_single_lp(_asset: uint256, _lp_amount: uint256) -> uint256:
+    assert _asset < MAX_NUM_ASSETS # dev: index out of bounds
+
+    # update rate
+    prev_supply: uint256 = 0
+    amplification: uint256 = 0
+    w_prod: uint256 = 0
+    vb_prod: uint256 = 0
+    vb_sum: uint256 = 0
+    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
+    rates: DynArray[uint256, MAX_NUM_ASSETS] = []
+    prev_supply, amplification, w_prod, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_asset, 1), pool.vb_prod(), pool.vb_sum())
+    prev_vb_sum: uint256 = vb_sum
+
+    supply: uint256 = prev_supply - _lp_amount
+    prev_vb: uint256 = pool.balances(_asset) * rates[0] / pool.rates(_asset)
+    weight: uint256 = weights[0] & WEIGHT_MASK
+
+    # update variables
+    num_assets: uint256 = pool.num_assets()
+    vb_prod = vb_prod * self._pow_up(prev_vb, weight) / PRECISION
+    for i in range(MAX_NUM_ASSETS):
+        if i == num_assets:
+            break
+        vb_prod = vb_prod * supply / prev_supply
+    vb_sum = vb_sum - prev_vb
+
+    # calculate new balance of asset
+    vb: uint256 = self._calc_vb(weight, prev_vb, supply, amplification, w_prod, vb_prod, vb_sum)
+    dvb: uint256 = prev_vb - vb
+    fee: uint256 = dvb * pool.fee_rate() / 2 / PRECISION
+    dvb -= fee
+    vb += fee
+    dx: uint256 = dvb * PRECISION / rates[0]
+
+    return dx
 
 @internal
 @view

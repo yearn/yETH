@@ -95,12 +95,37 @@ def test_equal_balanced_deposit_fee(project, deployer, alice, bob, token):
     assert bal2 < amt // 10 # rounding in favor of pool
     assert (bal - 10 * bal2) / bal < 3e-15
 
+def test_withdraw(project, deployer, alice, bob, token):
+    amplification = 10 * PRECISION
+    n = 4
+    assets, provider = deploy_assets(project, deployer, n)
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    token.set_minter(pool, sender=deployer)
+    estimator = project.Estimator.deploy(pool, sender=deployer)
+
+    amt = n * 100 * PRECISION
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt // n, sender=deployer)
+
+    pool.add_liquidity([amt // n for _ in range(n)], 0, sender=alice)
+
+    # remove liquidity
+    expect = estimator.get_remove_lp(token.balanceOf(alice)//10)
+    pool.remove_liquidity(token.balanceOf(alice)//10, [0 for _ in range(n)], sender=alice)
+
+    for i in range(n):
+        bal = assets[i].balanceOf(alice)
+        assert bal == expect[i]
+        assert abs(bal - amt // n // 10) <= 1
+
 def test_withdraw_single(project, deployer, alice, bob, token):
     amplification = 10 * PRECISION
     n = 4
     assets, provider = deploy_assets(project, deployer, n)
     pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
     token.set_minter(pool, sender=deployer)
+    estimator = project.Estimator.deploy(pool, sender=deployer)
 
     amt = n * 100 * PRECISION
     for asset in assets:
@@ -115,14 +140,20 @@ def test_withdraw_single(project, deployer, alice, bob, token):
     amt = amt // n // 10
     assets[0].approve(pool, MAX, sender=bob)
     assets[0].mint(bob, amt, sender=bob)
-    pool.add_liquidity([amt if i == 0 else 0 for i in range(n)], 0, sender=bob)
+    amts = [amt if i == 0 else 0 for i in range(n)]
+    expect = estimator.get_add_lp(amts)
+    pool.add_liquidity(amts, 0, sender=bob)
+    bal = token.balanceOf(bob)
+    assert bal == expect
 
     # remove single sided liquidity
-    pool.remove_liquidity_single(0, token.balanceOf(bob), 0, sender=bob)
+    expect = estimator.get_remove_single_lp(0, bal)
+    pool.remove_liquidity_single(0, bal, 0, sender=bob)
     vb_prod2 = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
     vb_sum2 = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
 
     bal = assets[0].balanceOf(bob)
+    assert bal == expect
     assert amt > bal
     assert (amt - bal) / amt < 2e-14
     assert abs(vb_sum2 - vb_sum) / vb_sum < 1e-15
