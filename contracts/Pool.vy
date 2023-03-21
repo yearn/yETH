@@ -23,6 +23,9 @@ balances: public(uint256[MAX_NUM_ASSETS]) # x_i r_i
 rates: public(uint256[MAX_NUM_ASSETS]) # r_i
 weights: public(uint256[MAX_NUM_ASSETS]) # (w_i * n, lower * n, upper * n)
 management: public(address)
+guardian: public(address)
+paused: public(bool)
+killed: public(bool)
 fee_rate: public(uint256)
 ramp_step: public(uint256)
 ramp_last_time: public(uint256)
@@ -117,6 +120,7 @@ def __init__(
 
     self.ramp_step = 1
     self.management = msg.sender
+    self.guardian = msg.sender
 
 @external
 @nonreentrant('lock')
@@ -455,6 +459,24 @@ def update_weights():
         self.vb_prod = vb_prod
 
 @external
+def pause():
+    assert msg.sender == self.management or msg.sender == self.guardian
+    assert not self.paused
+    self.paused = True
+
+@external
+def unpause():
+    assert msg.sender == self.management or msg.sender == self.guardian
+    assert self.paused and not self.killed
+    self.paused = False
+
+@external
+def kill():
+    assert msg.sender == self.management
+    assert self.paused and not self.killed
+    self.killed = True
+
+@external
 def set_fee_rate(_fee_rate: uint256):
     assert msg.sender == self.management
     # TODO: reasonable bounds
@@ -525,8 +547,15 @@ def set_management(_management: address):
     assert msg.sender == self.management
     self.management = _management
 
+@external
+def set_guardian(_guardian: address):
+    assert msg.sender == self.management or msg.sender == self.guardian
+    self.guardian = _guardian
+
 @internal
 def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256):
+    assert not self.paused # dev: paused
+    
     vb_prod: uint256 = 0
     vb_sum: uint256 = _vb_sum
     updated: bool = False
