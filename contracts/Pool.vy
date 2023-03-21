@@ -2,6 +2,9 @@
 
 from vyper.interfaces import ERC20
 
+interface ERC20Ext:
+    def decimals() -> uint8: view
+
 interface RateProvider:
     def rate(_asset: address) -> uint256: view
 
@@ -27,9 +30,9 @@ ramp_stop_time: public(uint256)
 target_amplification: public(uint256)
 target_weights: public(uint256[MAX_NUM_ASSETS])
 
-w_prod: uint256 # weight product: product(w_i^(w_i n)) = w^n
-vb_prod: uint256 # virtual balance product: D^n / product((x_i r_i / w_i)^(w_i n))
-vb_sum: uint256 # virtual balance sum: sum(x_i r_i)
+w_prod: public(uint256) # weight product: product(w_i^(w_i n)) = w^n
+vb_prod: public(uint256) # virtual balance product: D^n / product((x_i r_i / w_i)^(w_i n))
+vb_sum: public(uint256) # virtual balance sum: sum(x_i r_i)
 
 PRECISION: constant(uint256) = 1_000_000_000_000_000_000
 MAX_NUM_ASSETS: constant(uint256) = 32
@@ -103,6 +106,7 @@ def __init__(
         if asset == num_assets:
             break
         assert _assets[asset] != empty(address)
+        assert ERC20Ext(_assets[asset]).decimals() == 18
         self.assets[asset] = _assets[asset]
         assert _rate_providers[asset] != empty(address)
         self.rate_providers[asset] = _rate_providers[asset]
@@ -115,82 +119,6 @@ def __init__(
     self.management = msg.sender
 
 @external
-@view
-def get_dy(_i: uint256, _j: uint256, _dx: uint256) -> uint256:
-    assert _i != _j # dev: same input and output asset
-    assert _dx > 0 # dev: zero amount
-
-    # update rates for from and to assets
-    # reverts if either is not part of the pool
-    supply: uint256 = 0
-    vb_prod: uint256 = 0
-    vb_sum: uint256 = 0
-    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
-    rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-    supply, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), self.vb_prod, self.vb_sum)
-    prev_vb_sum: uint256 = vb_sum
-
-    prev_vbx: uint256 = self.balances[_i] * rates[0] / self.rates[_i]
-    prev_vby: uint256 = self.balances[_j] * rates[1] / self.rates[_j]
-
-    dx_fee: uint256 = _dx * self.fee_rate / PRECISION
-    dvbx: uint256 = (_dx - dx_fee) * rates[0] / PRECISION
-    vbx: uint256 = prev_vbx + dvbx
-    
-    # update x_i and remove x_j from variables
-    vb_prod = vb_prod * self._pow_up(prev_vby, weights[1] & WEIGHT_MASK) / self._pow_down(vbx * PRECISION / prev_vbx, weights[0] & WEIGHT_MASK)
-    vb_sum = vb_sum + dvbx - prev_vby
-
-    # calulate new balance of out token
-    vby: uint256 = self._calc_vb(weights[1], prev_vby, supply, self.amplification, self.w_prod, vb_prod, vb_sum)
-    vb_sum += vby + dx_fee * rates[0] / PRECISION
-
-    # check bands
-    num_assets: uint256 = self.num_assets
-    self._check_bands(num_assets, prev_vbx * PRECISION / prev_vb_sum, vbx * PRECISION / vb_sum, weights[0])
-    self._check_bands(num_assets, prev_vby * PRECISION / prev_vb_sum, vby * PRECISION / vb_sum, weights[1])
-
-    return (prev_vby - vby) * PRECISION / rates[1]
-
-@external
-@view
-def get_dx(_i: uint256, _j: uint256, _dy: uint256) -> uint256:
-    # update rates for from and to assets
-    # reverts if either is not part of the pool
-    vb_prod: uint256 = 0
-    vb_sum: uint256 = 0
-    supply: uint256 = 0
-    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
-    rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-    supply, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), self.vb_prod, self.vb_sum)
-    prev_vb_sum: uint256 = vb_sum
-
-    prev_vbx: uint256 = self.balances[_i] * rates[0] / self.rates[_i]
-    prev_vby: uint256 = self.balances[_j] * rates[1] / self.rates[_j]
-
-    dvby: uint256 = _dy * rates[1] / PRECISION
-    vby: uint256 = prev_vby - dvby
-
-    # update x_j and remove x_i from variables
-    vb_prod = vb_prod * self._pow_up(prev_vbx, weights[0] & WEIGHT_MASK) / self._pow_down(vby * PRECISION / prev_vby, weights[1] & WEIGHT_MASK)
-    vb_sum = vb_sum - dvby - prev_vbx
-
-    # calulate new balance of in token
-    vbx: uint256 = self._calc_vb(weights[0], prev_vbx, supply, self.amplification, self.w_prod, vb_prod, vb_sum)
-    dx: uint256 = (vbx - prev_vbx) * PRECISION / rates[0]
-    dx_fee: uint256 = self.fee_rate
-    dx_fee = dx * dx_fee / (PRECISION - dx_fee)
-    dx += dx_fee
-    vbx += dx_fee * rates[0] / PRECISION
-
-    # check bands
-    num_assets: uint256 = self.num_assets
-    self._check_bands(num_assets, prev_vbx * PRECISION / prev_vb_sum, vbx * PRECISION / vb_sum, weights[0])
-    self._check_bands(num_assets, prev_vby * PRECISION / prev_vb_sum, vby * PRECISION / vb_sum, weights[1])
-    
-    return dx
-
-@external
 @nonreentrant('lock')
 def swap(_i: uint256, _j: uint256, _dx: uint256, _min_dy: uint256, _receiver: address = msg.sender) -> uint256:
     assert _i != _j # dev: same input and output asset
@@ -198,7 +126,6 @@ def swap(_i: uint256, _j: uint256, _dx: uint256, _min_dy: uint256, _receiver: ad
     assert _dx > 0 # dev: zero amount
 
     # update rates for from and to assets
-    # reverts if either is not part of the pool
     assets: DynArray[uint256, MAX_NUM_ASSETS] = [_i, _j]
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
@@ -599,55 +526,6 @@ def set_management(_management: address):
     self.management = _management
 
 @internal
-@view
-def _get_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint256, DynArray[uint256, MAX_NUM_ASSETS], DynArray[uint256, MAX_NUM_ASSETS]):
-    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
-    rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-
-    amplification: uint256 = 0
-    w_prod: uint256 = 0
-    vb_prod: uint256 = 0
-    vb_sum: uint256 = _vb_sum
-    all_weights: DynArray[uint256, MAX_NUM_ASSETS] = []
-    updated: bool = False
-    amplification, w_prod, vb_prod, all_weights, updated = self._get_weights(_vb_prod, _vb_sum)
-    num_assets: uint256 = self.num_assets
-    for i in range(MAX_NUM_ASSETS):
-        asset: uint256 = shift(_assets, unsafe_mul(-8, convert(i, int128))) & 255
-        if asset == 0 or asset > num_assets:
-            break
-        provider: address = self.rate_providers[asset]
-        prev_rate: uint256 = self.rates[asset]
-        rate: uint256 = RateProvider(provider).rate(self.assets[asset])
-        assert rate > 0 # dev: no rate
-        rates.append(rate)
-
-        weight: uint256 = 0
-        if updated:
-            weight = all_weights[asset]
-        else:
-            weight = self.weights[asset]
-        weights.append(weight)
-
-        if rate == prev_rate:
-            continue
-
-        if prev_rate > 0 and vb_sum > 0:
-            # factor out old rate and factor in new
-            vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, weight & WEIGHT_MASK) / PRECISION
-
-            prev_bal: uint256 = self.balances[asset]
-            bal: uint256 = prev_bal * rate / prev_rate
-            vb_sum = vb_sum + bal - prev_bal
-
-    if not updated and vb_prod == _vb_prod and vb_sum == _vb_sum:
-        return self.supply, vb_prod, vb_sum, weights, rates
-    
-    supply: uint256 = 0
-    supply, vb_prod = self._calc_supply(num_assets, self.supply, amplification, w_prod, vb_prod, vb_sum, True)
-    return supply, vb_prod, vb_sum, weights, rates
-
-@internal
 def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256):
     vb_prod: uint256 = 0
     vb_sum: uint256 = _vb_sum
@@ -682,57 +560,6 @@ def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uin
     supply: uint256 = 0
     supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
     return vb_prod, vb_sum
-
-@internal
-@view
-def _get_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint256, DynArray[uint256, MAX_NUM_ASSETS], bool):
-    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
-    span: uint256 = self.ramp_last_time
-    duration: uint256 = self.ramp_stop_time
-    amplification: uint256 = self.amplification
-    if span == 0 or span > block.timestamp or (block.timestamp - span < self.ramp_step and duration > block.timestamp):
-        return amplification, self.w_prod, _vb_prod, weights, False
-
-    if block.timestamp < duration:
-        # ramp in progress
-        duration -= span
-    else:
-        # ramp has finished
-        duration = 0
-    span = block.timestamp - span
-    
-    # update amplification
-    current: uint256 = self.amplification
-    target: uint256 = self.target_amplification
-    if duration == 0:
-        amplification = target
-    else:
-        if current > target:
-            amplification = current - (current - target) * span / duration
-        else:
-            amplification = current + (target - current) * span / duration
-
-    # update weights
-    num_assets: uint256 = self.num_assets
-    for asset in range(MAX_NUM_ASSETS):
-        if asset == num_assets:
-            break
-        current = self.weights[asset]
-        target = self.target_weights[asset]
-        if duration == 0:
-            weights.append(target)
-        else:
-            if current > target:
-                weights.append(current - (current - target) * span / duration)
-            else:
-                weights.append(current + (target - current) * span / duration)
-
-    w_prod: uint256 = 0
-    vb_prod: uint256 = 0
-    if _vb_sum > 0:
-        w_prod = self._calc_w_prod()
-        vb_prod = self._calc_vb_prod(_vb_sum)
-    return amplification, w_prod, vb_prod, weights, True
 
 @internal
 def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, bool):
@@ -870,9 +697,6 @@ def _calc_vb_prod(_s: uint256) -> uint256:
 @internal
 @pure
 def _calc_supply(_num_assets: uint256, _supply: uint256, _amplification: uint256, _w_prod: uint256, _vb_prod: uint256, _vb_sum: uint256, _up: bool) -> (uint256, uint256):
-    # TODO: weight changes
-    # TODO: amplification changes
-
     # s[n+1] = (A sum / w^n - s^(n+1) w^n /prod^n)) / (A w^n - 1)
     #        = (l - s r) / d
 
