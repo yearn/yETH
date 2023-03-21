@@ -204,10 +204,10 @@ def get_add_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
         if asset == num_assets:
             break
 
-        prev_vb: uint256 = pool.balances(asset) * rates[j] / pool.rates(asset)
         amount: uint256 = _amounts[asset]
         if amount == 0:
             continue
+        prev_vb: uint256 = pool.balances(asset) * rates[j] / pool.rates(asset)
 
         dvb: uint256 = amount * rates[j] / PRECISION
         vb: uint256 = prev_vb + dvb
@@ -238,10 +238,8 @@ def get_add_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
         j = unsafe_add(j, 1)
 
     supply: uint256 = 0
-    supply, vb_prod = self._calc_supply(num_assets, supply, pool.amplification(), w_prod, vb_prod, vb_sum, prev_supply == 0)
-    mint: uint256 = supply - prev_supply
-
-    return mint
+    supply, vb_prod = self._calc_supply(num_assets, prev_supply, amplification, w_prod, vb_prod, vb_sum, prev_supply == 0)
+    return supply - prev_supply
 
 @external
 @view
@@ -272,6 +270,7 @@ def _get_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint25
         asset: uint256 = shift(_assets, unsafe_mul(-8, convert(i, int128))) & 255
         if asset == 0 or asset > num_assets:
             break
+        asset = unsafe_sub(asset, 1)
         provider: address = pool.rate_providers(asset)
         prev_rate: uint256 = pool.rates(asset)
         rate: uint256 = RateProvider(provider).rate(pool.assets(asset))

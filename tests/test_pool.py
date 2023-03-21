@@ -39,6 +39,7 @@ def test_equal_balanced_deposit(project, deployer, alice, bob, token):
     assets, provider = deploy_assets(project, deployer, n)
     pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
     token.set_minter(pool, sender=deployer)
+    estimator = project.Estimator.deploy(pool, sender=deployer)
 
     amt = n * 100 * PRECISION
     for asset in assets:
@@ -53,8 +54,11 @@ def test_equal_balanced_deposit(project, deployer, alice, bob, token):
     vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
     assert vb_sum == amt
 
-    pool.add_liquidity([amt // n for _ in range(n)], 0, sender=bob)
+    amts = [amt // n for _ in range(n)]
+    expect = estimator.get_add_lp(amts)
+    pool.add_liquidity(amts, 0, sender=bob)
     bal = token.balanceOf(bob)
+    assert bal == expect
     assert bal < amt # rounding in favor of pool
     assert abs(amt - bal) / amt < 1e-15
 
@@ -67,6 +71,7 @@ def test_equal_balanced_deposit_fee(project, deployer, alice, bob, token):
     pool.set_staking(deployer, sender=deployer)
     pool.set_fee_rate(PRECISION // 10, sender=deployer)
     token.set_minter(pool, sender=deployer)
+    estimator = project.Estimator.deploy(pool, sender=deployer)
 
     amt = n * 100 * PRECISION
     for asset in assets:
@@ -82,8 +87,11 @@ def test_equal_balanced_deposit_fee(project, deployer, alice, bob, token):
     assert vb_sum == amt
 
     # do another balanced deposit, no fee charged
-    pool.add_liquidity([amt // n // 10 for _ in range(n)], 0, sender=bob)
+    amts = [amt // n // 10 for _ in range(n)]
+    expect = estimator.get_add_lp(amts)
+    pool.add_liquidity(amts, 0, sender=bob)
     bal2 = token.balanceOf(bob)
+    assert bal2 == expect
     assert bal2 < amt // 10 # rounding in favor of pool
     assert (bal - 10 * bal2) / bal < 3e-15
 
@@ -126,6 +134,7 @@ def test_deposit_fee(project, chain, deployer, alice, bob, token):
     assets, provider = deploy_assets(project, deployer, n)
     pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
     token.set_minter(pool, sender=deployer)
+    estimator = project.Estimator.deploy(pool, sender=deployer)
 
     amt = 100 * PRECISION
     for i in range(n):
@@ -140,8 +149,13 @@ def test_deposit_fee(project, chain, deployer, alice, bob, token):
 
     # add and remove single sided liquidity without fee
     id = chain.snapshot()
-    pool.add_liquidity([swap_amt if i == 0 else 0 for i in range(n)], 0, sender=bob)
-    pool.remove_liquidity_single(1, token.balanceOf(bob), 0, sender=bob)
+    amts = [swap_amt if i == 0 else 0 for i in range(n)]
+    expect = estimator.get_add_lp(amts)
+    pool.add_liquidity(amts, 0, sender=bob)
+    bal = token.balanceOf(bob)
+    assert bal == expect
+
+    pool.remove_liquidity_single(1, bal, 0, sender=bob)
     full_amt = assets[1].balanceOf(bob)
     chain.restore(id)
 
@@ -150,8 +164,13 @@ def test_deposit_fee(project, chain, deployer, alice, bob, token):
     pool.set_fee_rate(fee_rate, sender=deployer) # 1%
 
     # add and remove single sided liquidity with fee
-    pool.add_liquidity([swap_amt if i == 0 else 0 for i in range(n)], 0, sender=bob)
-    pool.remove_liquidity_single(1, token.balanceOf(bob), 0, sender=bob)
+    expect = estimator.get_add_lp(amts)
+    pool.add_liquidity(amts, 0, sender=bob)
+    bal2 = token.balanceOf(bob)
+    assert bal2 == expect
+    assert bal2 < bal
+
+    pool.remove_liquidity_single(1, bal2, 0, sender=bob)
     out_amt = assets[1].balanceOf(bob)
     actual_fee_rate = (full_amt - out_amt) * PRECISION / full_amt
     assert abs(fee_rate - actual_fee_rate) / fee_rate < 0.01
@@ -256,7 +275,7 @@ def test_swap(project, deployer, alice, bob, token):
     assets, provider = deploy_assets(project, deployer, n)
     pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
     token.set_minter(pool, sender=deployer)
-    estimate = project.Estimate.deploy(pool, sender=deployer)
+    estimator = project.Estimator.deploy(pool, sender=deployer)
 
     amt = n * 100 * PRECISION
     for asset in assets:
@@ -271,7 +290,7 @@ def test_swap(project, deployer, alice, bob, token):
     swap = 10 * PRECISION
     assets[0].approve(pool, MAX, sender=bob)
     assets[0].mint(bob, swap, sender=deployer)
-    expect = estimate.get_dy(0, 1, swap)
+    expect = estimator.get_dy(0, 1, swap)
     pool.swap(0, 1, swap, 0, sender=bob)
     assert assets[0].balanceOf(bob) == 0
     bal = assets[1].balanceOf(bob)
@@ -301,7 +320,7 @@ def test_swap_fee(project, chain, deployer, alice, bob, token):
     assets, provider = deploy_assets(project, deployer, n)
     pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
     token.set_minter(pool, sender=deployer)
-    estimate = project.Estimate.deploy(pool, sender=deployer)
+    estimator = project.Estimator.deploy(pool, sender=deployer)
 
     amts = [170 * PRECISION, 50 * PRECISION, 20 * PRECISION, 160 * PRECISION]
     for i in range(n):
@@ -316,7 +335,7 @@ def test_swap_fee(project, chain, deployer, alice, bob, token):
     assets[0].mint(bob, swap, sender=deployer)
 
     id = chain.snapshot()
-    expect = estimate.get_dy(0, 1, swap)
+    expect = estimator.get_dy(0, 1, swap)
     pool.swap(0, 1, swap, 0, sender=bob)
     full_out = assets[1].balanceOf(bob)
     assert full_out == expect
@@ -327,7 +346,7 @@ def test_swap_fee(project, chain, deployer, alice, bob, token):
     pool.set_staking(deployer, sender=deployer)
     pool.set_fee_rate(fee_rate, sender=deployer)
     
-    expect = estimate.get_dy(0, 1, swap)
+    expect = estimator.get_dy(0, 1, swap)
     pool.swap(0, 1, swap, 0, sender=bob)
     out = assets[1].balanceOf(bob)
     assert out == expect
@@ -341,7 +360,7 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
     assets, provider = deploy_assets(project, deployer, n)
     pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
     token.set_minter(pool, sender=deployer)
-    estimate = project.Estimate.deploy(pool, sender=deployer)
+    estimator = project.Estimator.deploy(pool, sender=deployer)
 
     amt = n * 100 * PRECISION
     for asset in assets:
@@ -356,7 +375,7 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
     swap = 10 * PRECISION
     assets[0].approve(pool, MAX, sender=bob)
     assets[0].mint(bob, 2 * swap, sender=deployer)
-    expect = estimate.get_dx(0, 1, swap)
+    expect = estimator.get_dx(0, 1, swap)
     pool.swap_exact_out(0, 1, swap, MAX, sender=bob)
     assert assets[1].balanceOf(bob) == swap
     amt = 2 * swap - assets[0].balanceOf(bob)
@@ -392,7 +411,7 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     assets, provider = deploy_assets(project, deployer, n)
     pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
     token.set_minter(pool, sender=deployer)
-    estimate = project.Estimate.deploy(pool, sender=deployer)
+    estimator = project.Estimator.deploy(pool, sender=deployer)
 
     amt = n * 100 * PRECISION
     for asset in assets:
@@ -405,7 +424,7 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     assets[0].approve(pool, MAX, sender=bob)
     assets[0].mint(bob, 2 * swap, sender=deployer)
     id = chain.snapshot()
-    expect = estimate.get_dx(0, 1, swap)
+    expect = estimator.get_dx(0, 1, swap)
     pool.swap_exact_out(0, 1, swap, MAX, sender=bob)
     base_amt = 2 * swap - assets[0].balanceOf(bob)
     assert base_amt == expect
@@ -423,7 +442,7 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     pool.set_staking(deployer, sender=deployer)
     pool.set_fee_rate(fee_rate, sender=deployer)
 
-    expect = estimate.get_dx(0, 1, swap)
+    expect = estimator.get_dx(0, 1, swap)
     pool.swap_exact_out(0, 1, swap, MAX, sender=bob)
     amt = 2 * swap - assets[0].balanceOf(bob)
     assert amt == expect
