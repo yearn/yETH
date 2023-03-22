@@ -233,6 +233,7 @@ def _withdraw(_assets: uint256, _shares: uint256, _receiver: address, _owner: ad
         self.allowance[_owner][msg.sender] -= _shares
     
     self.unlocked -= _assets
+    self.known -= _assets
     self.totalSupply -= _shares
     self.balanceOf[_owner] -= _shares
 
