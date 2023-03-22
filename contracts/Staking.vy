@@ -6,11 +6,11 @@ implements: ERC20
 implements: ERC4626
 
 # State
-unlockedAssets: public(uint256)
-knownAssets: public(uint256)
-pendingAssets: public(uint256)
-streamingAssets: public(uint256)
-
+updated: public(uint256)
+known: public(uint256)
+pending: public(uint256)
+streaming: public(uint256)
+unlocked: public(uint256)
 
 # ERC20 state
 totalSupply: public(uint256)
@@ -23,6 +23,8 @@ decimals: public(constant(uint8)) = 18
 
 # ERC4626 state
 asset: public(immutable(address))
+
+WEEK_LENGTH: constant(uint256) = 7 * 24 * 60 * 60
 
 # ERC20 events
 event Transfer:
@@ -56,6 +58,7 @@ event Withdraw:
 @external
 def __init__(_asset: address):
     asset = _asset
+    self.updated = block.timestamp
     log Transfer(empty(address), msg.sender, 0)
 
 # ERC20 functions
@@ -86,25 +89,25 @@ def approve(_spender: address, _value: uint256) -> bool:
 @external
 @view
 def totalAssets() -> uint256:
-    return self._availableAssets()
+    return self._get_unlocked()
 
 @external
 @view
 def convertToShares(_assets: uint256) -> uint256:
-    totalShares: uint256 = self.totalSupply
-    totalAssets: uint256 = self._availableAssets()
-    if totalShares == 0 or totalAssets == 0:
+    shares: uint256 = self.totalSupply
+    assets: uint256 = self._get_unlocked()
+    if shares == 0 or assets == 0:
         return _assets
-    return _assets * totalShares / totalAssets
+    return _assets * shares / assets
 
 @external
 @view
 def convertToAssets(_shares: uint256) -> uint256:
-    totalShares: uint256 = self.totalSupply
-    totalAssets: uint256 = self._availableAssets()
-    if totalShares == 0 or totalAssets == 0:
+    shares: uint256 = self.totalSupply
+    assets: uint256 = self._get_unlocked()
+    if shares == 0 or assets == 0:
         return _shares
-    return _shares * totalAssets / totalShares
+    return _shares * assets / shares
 
 @external
 @view
@@ -114,12 +117,12 @@ def maxDeposit(_receiver: address) -> uint256:
 @external
 @view
 def previewDeposit(_assets: uint256) -> uint256:
-    return self._previewDeposit(_assets, self._availableAssets())
+    return self._preview_deposit(_assets, self._get_unlocked())
 
 @external
 def deposit(_assets: uint256, _receiver: address = msg.sender) -> uint256:
     assert _assets > 0
-    shares: uint256 = self._previewDeposit(_assets, self._updateAvailableAssets())
+    shares: uint256 = self._preview_deposit(_assets, self._update_unlocked())
     assert shares > 0
     self._deposit(_assets, shares, _receiver)
     return shares
@@ -132,12 +135,12 @@ def maxMint(_receiver: address) -> uint256:
 @external
 @view
 def previewMint(_shares: uint256) -> uint256:
-    return self._previewMint(_shares, self._availableAssets())
+    return self._preview_mint(_shares, self._get_unlocked())
 
 @external
 def mint(_shares: uint256, _receiver: address = msg.sender) -> uint256:
     assert _shares > 0
-    assets: uint256 = self._previewMint(_shares, self._updateAvailableAssets())
+    assets: uint256 = self._preview_mint(_shares, self._update_unlocked())
     assert assets > 0
     self._deposit(assets, _shares, _receiver)
     return assets
@@ -150,12 +153,12 @@ def maxWithdraw(_owner: address) -> uint256:
 @external
 @view
 def previewWithdraw(_assets: uint256) -> uint256:
-    return self._previewWithdraw(_assets, self._availableAssets())
+    return self._preview_withdraw(_assets, self._get_unlocked())
 
 @external
 def withdraw(_assets: uint256, _receiver: address = msg.sender, _owner: address = msg.sender) -> uint256:
     assert _assets > 0
-    shares: uint256 = self._previewWithdraw(_assets, self._updateAvailableAssets())
+    shares: uint256 = self._preview_withdraw(_assets, self._update_unlocked())
     assert shares > 0
     self._withdraw(_assets, shares, _receiver, _owner)
     return shares
@@ -168,12 +171,12 @@ def maxRedeem(_owner: address) -> uint256:
 @external
 @view
 def previewRedeem(_shares: uint256) -> uint256:
-    return self._previewRedeem(_shares, self._availableAssets())
+    return self._preview_redeem(_shares, self._get_unlocked())
 
 @external
 def redeem(_shares: uint256, _receiver: address = msg.sender, _owner: address = msg.sender) -> uint256:
     assert _shares > 0
-    assets: uint256 = self._previewRedeem(_shares, self._updateAvailableAssets())
+    assets: uint256 = self._preview_redeem(_shares, self._update_unlocked())
     assert assets > 0
     self._withdraw(assets, _shares, _receiver, _owner)
     return assets
@@ -181,27 +184,28 @@ def redeem(_shares: uint256, _receiver: address = msg.sender, _owner: address = 
 # Internal functions
 @internal
 @view
-def _previewDeposit(_assets: uint256, _totalAssets: uint256) -> uint256:
-    totalShares: uint256 = self.totalSupply
-    if totalShares == 0:
+def _preview_deposit(_assets: uint256, _total_assets: uint256) -> uint256:
+    total_shares: uint256 = self.totalSupply
+    if total_shares == 0:
         return _assets
-    if _totalAssets == 0:
+    if _total_assets == 0:
         return 0
-    return _assets * totalShares / _totalAssets
+    return _assets * total_shares / _total_assets
 
 @internal
 @view
-def _previewMint(_shares: uint256, _totalAssets: uint256) -> uint256:
-    totalShares: uint256 = self.totalSupply
-    if totalShares == 0:
+def _preview_mint(_shares: uint256, _total_assets: uint256) -> uint256:
+    total_shares: uint256 = self.totalSupply
+    if total_shares == 0:
         return _shares
-    if _totalAssets == 0:
+    if _total_assets == 0:
         return 0
-    return _shares * _totalAssets / totalShares
+    return _shares * _total_assets / total_shares
 
 @internal
 def _deposit(_assets: uint256, _shares: uint256, _receiver: address):
-    self.unlockedAssets += _assets
+    self.unlocked += _assets
+    self.known += _assets
     self.totalSupply += _shares
     self.balanceOf[_receiver] += _shares
     
@@ -210,26 +214,25 @@ def _deposit(_assets: uint256, _shares: uint256, _receiver: address):
 
 @internal
 @view
-def _previewWithdraw(_assets: uint256, _totalAssets: uint256) -> uint256:
-    if _totalAssets == 0:
+def _preview_withdraw(_assets: uint256, _total_assets: uint256) -> uint256:
+    if _total_assets == 0:
         return 0
-    return _assets * self.totalSupply / _totalAssets
+    return _assets * self.totalSupply / _total_assets
 
 @internal
 @view
-def _previewRedeem(_shares: uint256, _totalAssets: uint256) -> uint256:
-    totalShares: uint256 = self.totalSupply
-    if totalShares == 0:
+def _preview_redeem(_shares: uint256, _total_assets: uint256) -> uint256:
+    _total_shares: uint256 = self.totalSupply
+    if _total_shares == 0:
         return 0
-    return _shares * _totalAssets / totalShares
+    return _shares * _total_assets / _total_shares
 
 @internal
 def _withdraw(_assets: uint256, _shares: uint256, _receiver: address, _owner: address):
     if _owner != msg.sender:
         self.allowance[_owner][msg.sender] -= _shares
     
-    # TODO: buckets
-    self.unlockedAssets -= _assets
+    self.unlocked -= _assets
     self.totalSupply -= _shares
     self.balanceOf[_owner] -= _shares
 
@@ -238,11 +241,79 @@ def _withdraw(_assets: uint256, _shares: uint256, _receiver: address, _owner: ad
 
 @internal
 @view
-def _availableAssets() -> uint256:
-    # TODO: streaming bucket
-    return self.unlockedAssets
+def _get_unlocked() -> uint256:
+    pending: uint256 = 0
+    streaming: uint256 = 0
+    unlocked: uint256 = 0
+    delta: int256 = 0
+    pending, streaming, unlocked, delta = self._get_amounts(ERC20(asset).balanceOf(self))
+    return unlocked
 
 @internal
-def _updateAvailableAssets() -> uint256:
-    # TODO: update knownAssets and other buckets
-    return self.unlockedAssets
+def _update_unlocked() -> uint256:
+    current: uint256 = ERC20(asset).balanceOf(self)
+    pending: uint256 = 0
+    streaming: uint256 = 0
+    unlocked: uint256 = 0
+    delta: int256 = 0
+    pending, streaming, unlocked, delta = self._get_amounts(current)
+
+    self.updated = block.timestamp
+    if delta != 0:
+        self.known = current
+        self.pending = pending
+        self.streaming = streaming
+        self.unlocked = unlocked
+
+    return unlocked
+
+@internal
+@view
+def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, int256):
+    updated: uint256 = self.updated
+    if updated == block.timestamp:
+        return self.pending, self.streaming, self.unlocked, 0
+
+    delta: int256 = 0
+    if block.timestamp / WEEK_LENGTH > updated / WEEK_LENGTH:
+        # TODO: new week
+        # if there hasnt been any update in a long time, distribute rewards between buckets
+        updated = block.timestamp / WEEK_LENGTH * WEEK_LENGTH
+
+    # time between last update and end of week
+    duration: uint256 = (updated / WEEK_LENGTH + 1) * WEEK_LENGTH - updated
+    # time that has passed since last update
+    span: uint256 = block.timestamp - updated
+
+    pending: uint256 = self.pending
+    streaming: uint256 = self.streaming
+
+    # unlock funds
+    unlocked: uint256 = streaming * span / duration
+    streaming -= unlocked
+    unlocked += self.unlocked
+
+    last: uint256 = self.known
+    if _current >= last:
+        # rewards
+        pending += _current - last
+        delta += convert(_current - last, int256)
+    else:
+        # slashing
+        shortage: uint256 = last - _current
+        delta -= convert(shortage, int256)
+        if pending >= shortage:
+            # there are enough pending assets to cover the slashing
+            pending -= shortage
+        else:
+            shortage -= pending
+            pending = 0
+            if streaming >= shortage:
+                # there are enough streaming assets to cover the slashing
+                streaming -= shortage
+            else:
+                # take from unlocked funds
+                shortage -= streaming
+                streaming = 0
+                unlocked -= shortage
+    return pending, streaming, unlocked, delta
