@@ -477,13 +477,76 @@ def kill():
     self.killed = True
 
 @external
+def add_asset(
+    _asset: address, 
+    _rate_provider: address, 
+    _weight: uint256, 
+    _lower: uint256, 
+    _upper: uint256, 
+    _amount: uint256, 
+    _receiver: address = msg.sender
+):
+    assert msg.sender == self.management
+
+    assert _amount > 0
+    prev_num_assets: uint256 = self.num_assets
+    assert prev_num_assets < MAX_NUM_ASSETS # dev: pool is full
+    assert self.ramp_last_time == 0 # dev: ramp active
+    assert self.vb_sum > 0 # dev: pool empty
+
+    rate: uint256 = RateProvider(_rate_provider).rate(_asset)
+    assert rate > 0 # dev: no rate
+
+    # update weights for existing assets
+    num_assets: uint256 = prev_num_assets + 1
+    for i in range(MAX_NUM_ASSETS):
+        if i == prev_num_assets:
+            break
+        assert self.assets[i] != _asset # dev: asset already part of pool
+        prev_weight: uint256 = self.weights[i]
+        lower: uint256 = (shift(prev_weight, LOWER_BAND_SHIFT) & WEIGHT_MASK) / prev_num_assets
+        upper: uint256 = shift(prev_weight, UPPER_BAND_SHIFT) / prev_num_assets
+        prev_weight = (prev_weight & WEIGHT_MASK) / prev_num_assets
+        self.weights[i] = self._pack_weight(num_assets, prev_weight - prev_weight * _weight / PRECISION, lower, upper)
+    
+    # set parameters for new asset
+    self.num_assets = num_assets
+    self.assets[prev_num_assets] = _asset
+    self.rate_providers[prev_num_assets] = _rate_provider
+    self.balances[prev_num_assets] = _amount * rate / PRECISION
+    self.rates[prev_num_assets] = rate
+    self.weights[prev_num_assets] = self._pack_weight(num_assets, _weight, _lower, _upper)
+
+    # recalculate variables
+    w_prod: uint256 = self._calc_w_prod()
+    vb_prod: uint256 = 0
+    vb_sum: uint256 = 0
+    vb_prod, vb_sum = self._calc_vb_prod_sum()
+
+    # update supply
+    prev_supply: uint256 = self.supply
+    supply: uint256 = 0
+    supply, vb_prod = self._calc_supply(num_assets, vb_sum, self.amplification, w_prod, vb_prod, vb_sum, True)
+
+    self.supply = supply
+    self.w_prod = w_prod
+    self.vb_prod = vb_prod
+    self.vb_sum = vb_sum
+
+    PoolToken(token).mint(_receiver, supply - prev_supply)
+
+@external
 def set_fee_rate(_fee_rate: uint256):
     assert msg.sender == self.management
     # TODO: reasonable bounds
     self.fee_rate = _fee_rate
 
 @external
-def set_weight_bands(_assets: DynArray[uint256, MAX_NUM_ASSETS], _lower: DynArray[uint256, MAX_NUM_ASSETS], _upper: DynArray[uint256, MAX_NUM_ASSETS]):
+def set_weight_bands(
+    _assets: DynArray[uint256, MAX_NUM_ASSETS], 
+    _lower: DynArray[uint256, MAX_NUM_ASSETS], 
+    _upper: DynArray[uint256, MAX_NUM_ASSETS]
+):
     assert msg.sender == self.management
     assert len(_lower) == len(_assets) and len(_upper) == len(_assets)
 
@@ -494,7 +557,20 @@ def set_weight_bands(_assets: DynArray[uint256, MAX_NUM_ASSETS], _lower: DynArra
         self.weights[asset] = self._pack_weight(num_assets, weight, _lower[asset], _upper[asset]) # performs bounds checks
 
 @external
-def set_ramp(_duration: uint256, _amplification: uint256, _weights: DynArray[uint256, MAX_NUM_ASSETS], _start: uint256 = block.timestamp):
+def set_rate_provider(_asset: uint256, _rate_provider: address):
+    assert msg.sender == self.management
+    assert _asset < self.num_assets # dev: index out of bounds
+
+    self.rate_providers[_asset] = _rate_provider
+    self.vb_prod, self.vb_sum = self._update_rates(_asset + 1, self.vb_prod, self.vb_sum)
+
+@external
+def set_ramp(
+    _duration: uint256, 
+    _amplification: uint256, 
+    _weights: DynArray[uint256, MAX_NUM_ASSETS], 
+    _start: uint256 = block.timestamp
+):
     assert msg.sender == self.management
 
     num_assets: uint256 = self.num_assets
@@ -725,7 +801,15 @@ def _calc_vb_prod(_s: uint256) -> uint256:
 
 @internal
 @pure
-def _calc_supply(_num_assets: uint256, _supply: uint256, _amplification: uint256, _w_prod: uint256, _vb_prod: uint256, _vb_sum: uint256, _up: bool) -> (uint256, uint256):
+def _calc_supply(
+    _num_assets: uint256, 
+    _supply: uint256, 
+    _amplification: uint256, 
+    _w_prod: uint256, 
+    _vb_prod: uint256, 
+    _vb_sum: uint256, 
+    _up: bool
+) -> (uint256, uint256):
     # s[n+1] = (A sum / w^n - s^(n+1) w^n /prod^n)) / (A w^n - 1)
     #        = (l - s r) / d
 
@@ -762,7 +846,15 @@ def _calc_supply(_num_assets: uint256, _supply: uint256, _amplification: uint256
 
 @internal
 @pure
-def _calc_vb(_weight: uint256, _y: uint256, _supply: uint256, _amplification: uint256, _w_prod: uint256, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
+def _calc_vb(
+    _weight: uint256, 
+    _y: uint256, 
+    _supply: uint256, 
+    _amplification: uint256, 
+    _w_prod: uint256, 
+    _vb_prod: uint256, 
+    _vb_sum: uint256
+) -> uint256:
     # y = x_j, sum' = sum(x_i, i != j), prod' = prod(x_i^w_i, i != j)
     # w = product(w_i), v_i = w_i n, f_i = 1/v_i
     # Iteratively find root of g(y) using Newton's method
