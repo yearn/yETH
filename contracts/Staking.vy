@@ -24,7 +24,8 @@ decimals: public(constant(uint8)) = 18
 # ERC4626 state
 asset: public(immutable(address))
 
-WEEK_LENGTH: constant(uint256) = 7 * 24 * 60 * 60
+DAY_LENGTH: constant(uint256) = 24 * 60 * 60
+WEEK_LENGTH: constant(uint256) = 7 * DAY_LENGTH
 
 # ERC20 events
 event Transfer:
@@ -60,6 +61,10 @@ def __init__(_asset: address):
     asset = _asset
     self.updated = block.timestamp
     log Transfer(empty(address), msg.sender, 0)
+
+@external
+def update():
+    self._update_unlocked()
 
 # ERC20 functions
 @external
@@ -259,13 +264,13 @@ def _update_unlocked() -> uint256:
     delta: int256 = 0
     pending, streaming, unlocked, delta = self._get_amounts(current)
 
-    self.updated = block.timestamp
-    if delta != 0:
-        self.known = current
-        self.pending = pending
-        self.streaming = streaming
-        self.unlocked = unlocked
+    # TODO: emit event
 
+    self.updated = block.timestamp
+    self.known = current
+    self.pending = pending
+    self.streaming = streaming
+    self.unlocked = unlocked
     return unlocked
 
 @internal
@@ -275,26 +280,58 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, int256):
     if updated == block.timestamp:
         return self.pending, self.streaming, self.unlocked, 0
 
+    last: uint256 = self.known
+    pending: uint256 = self.pending
+    streaming: uint256 = self.streaming
+    unlocked: uint256 = self.unlocked
+
     delta: int256 = 0
-    if block.timestamp / WEEK_LENGTH > updated / WEEK_LENGTH:
-        # TODO: new week
-        # if there hasnt been any update in a long time, distribute rewards between buckets
+    weeks: uint256 = block.timestamp / WEEK_LENGTH - updated / WEEK_LENGTH
+    if weeks > 0:
+        if weeks == 1:
+            # new week
+            unlocked += streaming
+            streaming = pending
+            pending = 0
+        else:
+            # week number has changed by >= 2 - function hasnt been called in at least a week
+            span: uint256 = block.timestamp - updated
+            unlocked += streaming + pending
+            if _current > last:
+                # net rewards generated, distribute over buckets
+                rewards: uint256 = _current - last
+                delta = convert(rewards, int256)
+                last = _current
+
+                # streaming bucket: 7 days
+                streaming = rewards * WEEK_LENGTH / span
+                span -= WEEK_LENGTH
+                rewards -= streaming
+
+                # pending bucket: time since new week
+                pending = rewards * (block.timestamp % WEEK_LENGTH) / span
+                rewards -= pending
+
+                # unlocked bucket: rest
+                unlocked += rewards
+            else:
+                # net slashing - deal with it below
+                streaming = 0
+                pending = 0
+
+        # set to beginning of the week
         updated = block.timestamp / WEEK_LENGTH * WEEK_LENGTH
 
     # time between last update and end of week
-    duration: uint256 = (updated / WEEK_LENGTH + 1) * WEEK_LENGTH - updated
+    duration: uint256 = WEEK_LENGTH - (updated % WEEK_LENGTH)
     # time that has passed since last update
     span: uint256 = block.timestamp - updated
 
-    pending: uint256 = self.pending
-    streaming: uint256 = self.streaming
-
     # unlock funds
-    unlocked: uint256 = streaming * span / duration
-    streaming -= unlocked
-    unlocked += self.unlocked
+    streamed: uint256 = streaming * span / duration
+    streaming -= streamed
+    unlocked += streamed
 
-    last: uint256 = self.known
     if _current >= last:
         # rewards
         pending += _current - last
