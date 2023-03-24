@@ -11,6 +11,9 @@ known: public(uint256)
 pending: public(uint256)
 streaming: public(uint256)
 unlocked: public(uint256)
+fee_rate: public(uint256)
+treasury: public(address)
+unclaimed: public(uint256)
 
 # ERC20 state
 totalSupply: public(uint256)
@@ -24,6 +27,7 @@ decimals: public(constant(uint8)) = 18
 # ERC4626 state
 asset: public(immutable(address))
 
+FEE_PRECISION: constant(uint256) = 10_000
 DAY_LENGTH: constant(uint256) = 24 * 60 * 60
 WEEK_LENGTH: constant(uint256) = 7 * DAY_LENGTH
 
@@ -60,11 +64,8 @@ event Withdraw:
 def __init__(_asset: address):
     asset = _asset
     self.updated = block.timestamp
+    self.treasury = msg.sender
     log Transfer(empty(address), msg.sender, 0)
-
-@external
-def update():
-    self._update_unlocked()
 
 # ERC20 functions
 @external
@@ -186,6 +187,35 @@ def redeem(_shares: uint256, _receiver: address = msg.sender, _owner: address = 
     self._withdraw(assets, _shares, _receiver, _owner)
     return assets
 
+# External functions
+@external
+def update():
+    self._update_unlocked()
+
+@external
+def claim_fees():
+    unlocked: uint256 = self._update_unlocked()
+    assets: uint256 = self.unclaimed
+    shares: uint256 = self._preview_deposit(assets, unlocked)
+    self.unclaimed = 0
+    self.unlocked = unlocked + assets
+    self.known += assets
+    self.totalSupply += shares
+
+    treasury: address = self.treasury
+    self.balanceOf[treasury] += shares
+    log Deposit(self, treasury, assets, shares)
+
+@external
+def set_fee_rate(_fee_rate: uint256):
+    assert msg.sender == self.treasury
+    self.fee_rate = _fee_rate
+
+@external
+def set_treasury(_treasury: address):
+    assert msg.sender == self.treasury
+    self.treasury = _treasury
+
 # Internal functions
 @internal
 @view
@@ -251,8 +281,9 @@ def _get_unlocked() -> uint256:
     pending: uint256 = 0
     streaming: uint256 = 0
     unlocked: uint256 = 0
+    unclaimed: uint256 = 0
     delta: int256 = 0
-    pending, streaming, unlocked, delta = self._get_amounts(ERC20(asset).balanceOf(self))
+    pending, streaming, unlocked, unclaimed, delta = self._get_amounts(ERC20(asset).balanceOf(self))
     return unlocked
 
 @internal
@@ -261,25 +292,29 @@ def _update_unlocked() -> uint256:
     pending: uint256 = 0
     streaming: uint256 = 0
     unlocked: uint256 = 0
+    unclaimed: uint256 = 0
     delta: int256 = 0
-    pending, streaming, unlocked, delta = self._get_amounts(current)
+    pending, streaming, unlocked, unclaimed, delta = self._get_amounts(current)
 
     # TODO: emit event
 
     self.updated = block.timestamp
-    self.known = current
+    self.known = current - unclaimed
     self.pending = pending
     self.streaming = streaming
     self.unlocked = unlocked
+    self.unclaimed = unclaimed
     return unlocked
 
 @internal
 @view
-def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, int256):
+def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int256):
     updated: uint256 = self.updated
     if updated == block.timestamp:
-        return self.pending, self.streaming, self.unlocked, 0
+        return self.pending, self.streaming, self.unlocked, self.unclaimed, 0
 
+    unclaimed: uint256 = self.unclaimed
+    current: uint256 = _current - unclaimed
     last: uint256 = self.known
     pending: uint256 = self.pending
     streaming: uint256 = self.streaming
@@ -297,11 +332,15 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, int256):
             # week number has changed by >= 2 - function hasnt been called in at least a week
             span: uint256 = block.timestamp - updated
             unlocked += streaming + pending
-            if _current > last:
+            if current > last:
                 # net rewards generated, distribute over buckets
-                rewards: uint256 = _current - last
+                rewards: uint256 = current - last
+                fee: uint256 = rewards * self.fee_rate / FEE_PRECISION
+                rewards -= fee
+                unclaimed += fee
+
                 delta = convert(rewards, int256)
-                last = _current
+                last = current
 
                 # streaming bucket: 7 days
                 streaming = rewards * WEEK_LENGTH / span
@@ -332,13 +371,17 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, int256):
     streaming -= streamed
     unlocked += streamed
 
-    if _current >= last:
+    if current >= last:
         # rewards
-        pending += _current - last
-        delta += convert(_current - last, int256)
+        rewards: uint256 = current - last
+        fee: uint256 = rewards * self.fee_rate / FEE_PRECISION
+        rewards -= fee
+        unclaimed += fee
+        pending += rewards
+        delta += convert(rewards, int256)
     else:
         # slashing
-        shortage: uint256 = last - _current
+        shortage: uint256 = last - current
         delta -= convert(shortage, int256)
         if pending >= shortage:
             # there are enough pending assets to cover the slashing
@@ -354,4 +397,4 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, int256):
                 shortage -= streaming
                 streaming = 0
                 unlocked -= shortage
-    return pending, streaming, unlocked, delta
+    return pending, streaming, unlocked, unclaimed, delta
