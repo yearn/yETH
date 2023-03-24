@@ -38,6 +38,8 @@
 - Management can set the tolerance range
 - Management can modify the weights of all assets
 - Management can set the new management address
+- Management can set the new guardian address
+- Guardian can set the new guardian address
 - Guardian can trigger pause mode
 - Management can trigger killed mode
 
@@ -52,7 +54,6 @@ _Note_: this mode is to be enabled in the event of extreme market conditions or 
 _Note:_ this mode is to be activated in the event of a LSD depeg, such as a mint bug or a compromised oracle or a critical bug in the protocol.
 - During killed mode, no user may deposit assets into the contract
 - During killed mode, users may only withdraw assets in a balanced manner
-- During killed mode, the reward controller may not update the beacon chain amounts
 - There is no way to undo killed mode
 
 ## LP token contract specification (yETH)
@@ -65,7 +66,7 @@ _Note:_ this mode is to be activated in the event of a LSD depeg, such as a mint
 - The contract caches its own yETH balance, which is separated in buckets: pending, streaming and unlocked.
 - Before any change in shares, the stored yETH balance is updated
     - If the balance has increased, it is added to the pending bucket
-    - If the balance has decreased, it is subtracted from the pending bucket until it is empty. If the bucket is empty, the remainder is subtracted from the unlocked bucket
+    - If the balance has decreased, it is subtracted from the pending bucket until it is empty. If the bucket is empty, the remainder is subtracted from the streaming bucket. If that bucket is also empty, the remainder is subtracted from the unlocked bucket
 - At the end of the week, the pending bucket becomes the streaming bucket and a new pending bucket is created
 - The streaming bucket is unlocked linearly during the week
 - User deposits and withdrawals only affect the unlocked bucket
