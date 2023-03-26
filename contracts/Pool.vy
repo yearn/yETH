@@ -858,10 +858,10 @@ def _calc_vb(
     # y = x_j, sum' = sum(x_i, i != j), prod' = prod(x_i^w_i, i != j)
     # w = product(w_i), v_i = w_i n, f_i = 1/v_i
     # Iteratively find root of g(y) using Newton's method
-    # g(y) = y^(v_j + 1) + (sum' + (w^n / A - 1) D y^(w_j n) - D^(n+1) w^2n / prod'^n
+    # g(y) = y^(v_j + 1) + (sum' + (w^n / A - 1) D) y^(v_j) - D^(n+1) w^2n / prod'^n
     #      = y^(v_j + 1) + b y^(v_j) - c
     # y[n+1] = y[n] - g(y[n])/g'(y[n])
-    #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / (f_j + 1) y[n] + b)
+    #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / ((f_j + 1) y[n] + b))
 
     d: uint256 = _supply
     b: uint256 = d * _w_prod / _amplification # actually b + D
