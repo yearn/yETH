@@ -5,7 +5,12 @@ from vyper.interfaces import ERC4626
 implements: ERC20
 implements: ERC4626
 
-# State
+struct Weight:
+    week: uint16
+    t: uint56
+    updated: uint56
+    shares: uint128
+
 updated: public(uint256)
 known: public(uint256)
 pending: public(uint256)
@@ -14,6 +19,11 @@ unlocked: public(uint256)
 fee_rate: public(uint256)
 treasury: public(address)
 unclaimed: public(uint256)
+
+# voting
+half_time: public(uint256)
+previous_weights: HashMap[address, Weight]
+weights: HashMap[address, Weight]
 
 # ERC20 state
 totalSupply: public(uint256)
@@ -71,17 +81,19 @@ def __init__(_asset: address):
 @external
 def transfer(_to: address, _value: uint256) -> bool:
     assert _to != empty(address)
-    self.balanceOf[msg.sender] -= _value
-    self.balanceOf[_to] += _value
+    assert _value > 0
+    self._update_shares(msg.sender, _value, False)
+    self._update_shares(_to, _value, True)
     log Transfer(msg.sender, _to, _value)
     return True
 
 @external
 def transferFrom(_from: address, _to: address, _value: uint256) -> bool:
     assert _to != empty(address)
+    assert _value > 0
     self.allowance[_from][msg.sender] -= _value
-    self.balanceOf[_from] -= _value
-    self.balanceOf[_to] += _value
+    self._update_shares(_from, _value, False)
+    self._update_shares(_to, _value, True)
     log Transfer(_from, _to, _value)
     return True
 
@@ -187,7 +199,7 @@ def redeem(_shares: uint256, _receiver: address = msg.sender, _owner: address = 
     self._withdraw(assets, _shares, _receiver, _owner)
     return assets
 
-# External functions
+# external functions
 @external
 def update():
     self._update_unlocked()
@@ -207,16 +219,35 @@ def claim_fees():
     log Deposit(self, treasury, assets, shares)
 
 @external
+@view
+def vote_weight(_account: address) -> uint256:
+    week: uint16 = convert(block.timestamp / WEEK_LENGTH, uint16) - 1
+    weight: Weight = self.weights[_account]
+    if weight.week > week or weight.week == 0:
+        weight = self.previous_weights[_account]
+    
+    t: uint256 = convert(weight.t, uint256)
+    if weight.week > 0:
+        t += block.timestamp - convert(weight.updated, uint256)
+
+    return convert(weight.shares, uint256) * t / (t + self.half_time)
+
+@external
 def set_fee_rate(_fee_rate: uint256):
     assert msg.sender == self.treasury
     self.fee_rate = _fee_rate
+
+@external
+def set_half_time(_half_time: uint256):
+    assert msg.sender == self.treasury
+    self.half_time = _half_time
 
 @external
 def set_treasury(_treasury: address):
     assert msg.sender == self.treasury
     self.treasury = _treasury
 
-# Internal functions
+# internal functions
 @internal
 @view
 def _preview_deposit(_assets: uint256, _total_assets: uint256) -> uint256:
@@ -242,7 +273,7 @@ def _deposit(_assets: uint256, _shares: uint256, _receiver: address):
     self.unlocked += _assets
     self.known += _assets
     self.totalSupply += _shares
-    self.balanceOf[_receiver] += _shares
+    self._update_shares(_receiver, _shares, True)
     
     assert ERC20(asset).transferFrom(msg.sender, self, _assets, default_return_value=True)
     log Deposit(msg.sender, _receiver, _assets, _shares)
@@ -270,7 +301,7 @@ def _withdraw(_assets: uint256, _shares: uint256, _receiver: address, _owner: ad
     self.unlocked -= _assets
     self.known -= _assets
     self.totalSupply -= _shares
-    self.balanceOf[_owner] -= _shares
+    self._update_shares(_owner, _shares, False)
 
     assert ERC20(asset).transfer(_receiver, _assets, default_return_value=True)
     log Withdraw(msg.sender, _receiver, _owner, _assets, _shares)
@@ -398,3 +429,36 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int2
                 streaming = 0
                 unlocked -= shortage
     return pending, streaming, unlocked, unclaimed, delta
+
+@internal
+def _update_shares(_account: address, _change: uint256, _add: bool):
+    prev_shares: uint256 = self.balanceOf[_account]
+    shares: uint256 = prev_shares
+    if _add:
+        shares += _change
+    else:
+        shares -= _change
+    self.balanceOf[_account] = shares
+
+    week: uint16 = convert(block.timestamp / WEEK_LENGTH, uint16)
+    weight: Weight = self.weights[_account]
+    if weight.week > 0 and week > weight.week:
+        self.previous_weights[_account] = weight
+
+    if shares == 0:
+        self.weights[_account] = empty(Weight)
+        return
+
+    t: uint256 = convert(weight.t, uint256)
+    if weight.shares > 0:
+        t += block.timestamp - convert(weight.updated, uint256)
+        if shares > convert(weight.shares, uint256):
+            # amount has increased, calculate effective time that results in same weight
+            half_time: uint256 = self.half_time
+            t = prev_shares * t * half_time / (shares * (t + half_time) - prev_shares * t)
+
+    weight.week = week
+    weight.t = convert(t, uint56)
+    weight.updated = convert(block.timestamp, uint56)
+    weight.shares = convert(shares, uint128)
+    self.weights[_account] = weight
