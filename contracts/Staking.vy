@@ -228,7 +228,7 @@ def vote_weight(_account: address) -> uint256:
     
     t: uint256 = convert(weight.t, uint256)
     if weight.week > 0:
-        t += block.timestamp - convert(weight.updated, uint256)
+        t += block.timestamp / WEEK_LENGTH * WEEK_LENGTH - convert(weight.updated, uint256)
 
     return convert(weight.shares, uint256) * t / (t + self.half_time)
 
