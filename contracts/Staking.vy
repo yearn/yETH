@@ -13,12 +13,14 @@ struct Weight:
 
 updated: public(uint256)
 known: public(uint256)
-pending: public(uint256)
-streaming: public(uint256)
-unlocked: public(uint256)
+pending: uint256
+streaming: uint256
+unlocked: uint256
+
+# fees
 fee_rate: public(uint256)
 treasury: public(address)
-unclaimed: public(uint256)
+unclaimed: uint256
 
 # voting
 half_time: public(uint256)
@@ -74,6 +76,7 @@ event Withdraw:
 def __init__(_asset: address):
     asset = _asset
     self.updated = block.timestamp
+    self.half_time = WEEK_LENGTH
     self.treasury = msg.sender
     log Transfer(empty(address), msg.sender, 0)
 
@@ -201,8 +204,14 @@ def redeem(_shares: uint256, _receiver: address = msg.sender, _owner: address = 
 
 # external functions
 @external
-def update():
+def update_amounts() -> (uint256, uint256, uint256, uint256):
     self._update_unlocked()
+    return self.pending, self.streaming, self.unlocked, self.unclaimed
+
+@external
+@view
+def get_amounts() -> (uint256, uint256, uint256, uint256, int256):
+    return self._get_amounts(ERC20(asset).balanceOf(self))
 
 @external
 def claim_fees():
@@ -240,6 +249,7 @@ def set_fee_rate(_fee_rate: uint256):
 @external
 def set_half_time(_half_time: uint256):
     assert msg.sender == self.treasury
+    assert _half_time > 0
     self.half_time = _half_time
 
 @external
@@ -360,7 +370,7 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int2
             streaming = pending
             pending = 0
         else:
-            # week number has changed by >= 2 - function hasnt been called in at least a week
+            # week number has changed by at least 2 - function hasnt been called in at least a week
             span: uint256 = block.timestamp - updated
             unlocked += streaming + pending
             if current > last:
@@ -408,7 +418,11 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int2
         fee: uint256 = rewards * self.fee_rate / FEE_PRECISION
         rewards -= fee
         unclaimed += fee
-        pending += rewards
+        if weeks == 1 and block.timestamp % WEEK_LENGTH <= DAY_LENGTH:
+            # if first update in new week is in first day, add to streaming
+            streaming += rewards
+        else:
+            pending += rewards
         delta += convert(rewards, int256)
     else:
         # slashing
