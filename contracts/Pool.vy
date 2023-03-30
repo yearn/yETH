@@ -114,7 +114,7 @@ def __init__(
         assert _rate_providers[asset] != empty(address)
         self.rate_providers[asset] = _rate_providers[asset]
         assert _weights[asset] > 0
-        self.weights[asset] = self._pack_weight(num_assets, _weights[asset], PRECISION, PRECISION)
+        self.weights[asset] = self._pack_weight(_weights[asset] * num_assets, PRECISION * num_assets, PRECISION * num_assets)
         weight_sum += _weights[asset]
     assert weight_sum == PRECISION
 
@@ -448,7 +448,7 @@ def update_rates(_assets: uint256):
     self.vb_prod, self.vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum)
 
 @external
-def update_weights():
+def update_weights() -> bool:
     updated: bool = False
     vb_prod: uint256 = 0
     vb_sum: uint256 = self.vb_sum
@@ -457,6 +457,7 @@ def update_weights():
         supply: uint256 = 0
         supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
         self.vb_prod = vb_prod
+    return updated
 
 @external
 def pause():
@@ -496,6 +497,9 @@ def add_asset(
 
     rate: uint256 = RateProvider(_rate_provider).rate(_asset)
     assert rate > 0 # dev: no rate
+    assert _weight < PRECISION
+    assert _lower <= PRECISION
+    assert _upper <= PRECISION
 
     # update weights for existing assets
     num_assets: uint256 = prev_num_assets + 1
@@ -503,11 +507,14 @@ def add_asset(
         if i == prev_num_assets:
             break
         assert self.assets[i] != _asset # dev: asset already part of pool
-        prev_weight: uint256 = self.weights[i]
-        lower: uint256 = (shift(prev_weight, LOWER_BAND_SHIFT) & WEIGHT_MASK) / prev_num_assets
-        upper: uint256 = shift(prev_weight, UPPER_BAND_SHIFT) / prev_num_assets
-        prev_weight = (prev_weight & WEIGHT_MASK) / prev_num_assets
-        self.weights[i] = self._pack_weight(num_assets, prev_weight - prev_weight * _weight / PRECISION, lower, upper)
+        prev_weight: uint256 = 0
+        lower: uint256 = 0
+        upper: uint256 = 0
+        prev_weight, lower, upper = self._unpack_weight(self.weights[i])
+        prev_weight = prev_weight * num_assets / prev_num_assets
+        lower = lower * num_assets / prev_num_assets
+        upper = upper * num_assets / prev_num_assets
+        self.weights[i] = self._pack_weight(prev_weight - prev_weight * _weight / PRECISION, lower, upper)
     
     # set parameters for new asset
     self.num_assets = num_assets
@@ -515,7 +522,7 @@ def add_asset(
     self.rate_providers[prev_num_assets] = _rate_provider
     self.balances[prev_num_assets] = _amount * rate / PRECISION
     self.rates[prev_num_assets] = rate
-    self.weights[prev_num_assets] = self._pack_weight(num_assets, _weight, _lower, _upper)
+    self.weights[prev_num_assets] = self._pack_weight(_weight * num_assets, _lower * num_assets, _upper * num_assets)
 
     # recalculate variables
     w_prod: uint256 = self._calc_w_prod()
@@ -554,7 +561,8 @@ def set_weight_bands(
     for asset in _assets:
         assert asset < num_assets # dev: index out of bounds
         weight: uint256 = self.weights[asset] & WEIGHT_MASK
-        self.weights[asset] = self._pack_weight(num_assets, weight, _lower[asset], _upper[asset]) # performs bounds checks
+        assert _lower[asset] <= PRECISION and _upper[asset] <= PRECISION # dev: bands out of bounds
+        self.weights[asset] = self._pack_weight(weight, _lower[asset] * num_assets, _upper[asset] * num_assets)
 
 @external
 def set_rate_provider(_asset: uint256, _rate_provider: address):
@@ -566,9 +574,9 @@ def set_rate_provider(_asset: uint256, _rate_provider: address):
 
 @external
 def set_ramp(
-    _duration: uint256, 
     _amplification: uint256, 
     _weights: DynArray[uint256, MAX_NUM_ASSETS], 
+    _duration: uint256, 
     _start: uint256 = block.timestamp
 ):
     assert msg.sender == self.management
@@ -596,7 +604,7 @@ def set_ramp(
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
-        assert _weights[asset] < PRECISION
+        assert _weights[asset] < PRECISION # dev: weight out of bounds
         total += _weights[asset]
         self.target_weights[asset] = _weights[asset] * num_assets
     assert total == PRECISION # dev: weights dont add up
@@ -701,18 +709,21 @@ def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, bool):
 
     # update weights
     num_assets: uint256 = self.num_assets
+    lower: uint256 = 0
+    upper: uint256 = 0
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
-        current = self.weights[asset]
+        current, lower, upper = self._unpack_weight(self.weights[asset])
         target = self.target_weights[asset]
         if duration == 0:
-            self.weights[asset] = target
+            current = target
         else:
             if current > target:
-                self.weights[asset] = current - (current - target) * span / duration
+                current -= (current - target) * span / duration
             else:
-                self.weights[asset] = current + (target - current) * span / duration
+                current += (target - current) * span / duration
+        self.weights[asset] = self._pack_weight(current, lower, upper)
 
     vb_prod: uint256 = 0
     if _vb_sum > 0:
@@ -885,9 +896,13 @@ def _calc_vb(
 
 @internal
 @pure
-def _pack_weight(_num_assets: uint256, _weight: uint256, _lower: uint256, _upper: uint256) -> uint256:
-    assert _weight <= PRECISION and _lower <= PRECISION and _upper <= PRECISION # dev: weight bounds
-    return unsafe_mul(_weight, _num_assets) | shift(unsafe_mul(_lower, _num_assets), -LOWER_BAND_SHIFT) | shift(unsafe_mul(_upper, _num_assets), -UPPER_BAND_SHIFT)
+def _pack_weight(_weight: uint256, _lower: uint256, _upper: uint256) -> uint256:
+    return _weight | shift(_lower, -LOWER_BAND_SHIFT) | shift(_upper, -UPPER_BAND_SHIFT)
+
+@internal
+@pure
+def _unpack_weight(_packed: uint256) -> (uint256, uint256, uint256):
+    return _packed & WEIGHT_MASK, shift(_packed, LOWER_BAND_SHIFT) & WEIGHT_MASK, shift(_packed, UPPER_BAND_SHIFT)
 
 @internal
 @pure
