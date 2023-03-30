@@ -182,8 +182,10 @@ def test_balanced_deposit_fee(chain, deployer, alice, bob, token, weights, pool,
     
     # set a fee
     pool.set_fee_rate(PRECISION // 10, sender=deployer) # 10%
+    exp = estimator.get_add_lp(amts2)
     pool.add_liquidity(amts2, 0, bob, sender=alice)
     bal = token.balanceOf(bob)
+    assert bal == exp
     
     # balanced deposits arent charged anything
     assert abs(bal - bal_no_fee) / bal_no_fee < 1e-16
@@ -214,11 +216,125 @@ def test_deposit_fee(chain, deployer, alice, bob, token, weights, pool, estimato
     
     # set a fee
     pool.set_fee_rate(PRECISION // 10, sender=deployer) # 10%
+    exp = estimator.get_add_lp(amts)
     pool.add_liquidity(amts, 0, bob, sender=alice)
     bal = token.balanceOf(bob)
-    
-    rate = abs(bal - bal_no_fee) / bal_no_fee
+    assert bal == exp
     
     # single sided deposit is charged half of the fee
+    rate = abs(bal - bal_no_fee) / bal_no_fee
     exp = 1/20
     assert abs(rate - exp) / exp < 1e-4
+
+def test_deposit_rate_update(chain, deployer, alice, bob, token, weights, pool, estimator):
+    assets, provider, pool = pool
+    
+    # mint assets
+    n = len(assets)
+    total = 1_000_000 * PRECISION
+    amts = []
+    for i in range(n):
+        asset = assets[i]
+        asset.approve(pool, MAX, sender=alice)
+        amt = total * weights[i] // provider.rate(asset)
+        amts.append(amt)
+        asset.mint(alice, amt, sender=alice)
+    pool.add_liquidity(amts, 0, sender=alice)
+
+    # rate update of each asset, followed by a single sided deposit
+    factor = 1.01
+    for i in range(n):
+        asset = assets[i]
+        amts = [PRECISION if j == i else 0 for j in range(n)]
+        asset.mint(alice, PRECISION, sender=alice)
+        with chain.isolate():
+            pool.add_liquidity(amts, 0, bob, sender=alice)
+            base = token.balanceOf(bob)
+
+        with chain.isolate():
+            provider.set_rate(asset, int(provider.rate(asset) * factor), sender=alice)
+
+            # add liquidity after rate increase
+            exp = estimator.get_add_lp(amts)
+            pool.add_liquidity(amts, 0, bob, sender=alice)
+            bal = token.balanceOf(bob)
+            assert bal == exp
+
+            # staking address received rewards
+            exp2 = int(total * weights[i] // PRECISION*(factor-1))
+            bal2 = token.balanceOf(deployer)
+            assert bal2 < exp2
+            assert abs(bal2 - exp2) / exp2 < 1e-3
+
+        # the rate update brought pool out of balance so increase in lp tokens is less than `factor`
+        assert bal > base
+        bal_factor = bal / base
+        assert bal_factor < factor
+        assert abs(bal_factor - factor) / factor < 1e-3
+
+def test_deposit_ramp_weight(chain, deployer, alice, bob, token, weights, pool, estimator):
+    assets, provider, pool = pool
+    
+    # mint assets
+    n = len(assets)
+    total = 1_000 * PRECISION
+    amts = []
+    for i in range(n):
+        asset = assets[i]
+        asset.approve(pool, MAX, sender=alice)
+        amt = total * weights[i] // provider.rate(asset)
+        amts.append(amt)
+        asset.mint(alice, amt, sender=alice)
+    pool.add_liquidity(amts, 0, deployer, sender=alice)
+
+    assets[1].mint(alice, PRECISION, sender=alice)
+    assets[2].mint(alice, PRECISION, sender=alice)
+
+    with chain.isolate():
+        pool.add_liquidity([PRECISION if i == 1 else 0 for i in range(n)], 0, bob, sender=alice)
+        base_1 = token.balanceOf(bob)
+    with chain.isolate():
+        pool.add_liquidity([PRECISION if i == 2 else 0 for i in range(n)], 0, bob, sender=alice)
+        base_2 = token.balanceOf(bob)
+
+    amplification = pool.amplification()
+    weights2 = weights
+    weights2[1] += PRECISION // 10
+    with ape.reverts():
+        # weights have to sum up to 1
+        pool.set_ramp(amplification, weights2, WEEK_LENGTH, sender=deployer)
+    weights2[2] -= PRECISION // 10
+
+    ts = chain.pending_timestamp
+    pool.set_ramp(amplification, weights2, WEEK_LENGTH, sender=deployer)
+
+    # halfway ramp
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
+    assert pool.update_weights(sender=alice).return_value
+    with chain.isolate():
+        pool.add_liquidity([PRECISION if i == 1 else 0 for i in range(n)], 0, bob, sender=alice)
+        mid_1 = token.balanceOf(bob)
+    with chain.isolate():
+        pool.add_liquidity([PRECISION if i == 2 else 0 for i in range(n)], 0, bob, sender=alice)
+        mid_2 = token.balanceOf(bob)
+    
+    # asset 1 share is below weight -> bonus
+    assert mid_1 > base_1
+    # asset 2 share is above weight -> penalty
+    assert mid_2 < base_2
+
+    # end of ramp
+    chain.pending_timestamp = ts + WEEK_LENGTH
+    assert pool.update_weights(sender=alice).return_value
+    with chain.isolate():
+        pool.add_liquidity([PRECISION if i == 1 else 0 for i in range(n)], 0, bob, sender=alice)
+        end_1 = token.balanceOf(bob)
+    with chain.isolate():
+        pool.add_liquidity([PRECISION if i == 2 else 0 for i in range(n)], 0, bob, sender=alice)
+        end_2 = token.balanceOf(bob)
+    
+    # asset 1 share is more below weight -> bigger bonus
+    assert end_1 > mid_1
+
+    # asset 2 share is more above weight -> bigger penalty
+    assert end_2 < mid_2
