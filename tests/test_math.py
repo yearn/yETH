@@ -191,3 +191,16 @@ def test_y_4d(project, accounts):
     x[0] = y
     d2, _, _ = math.solve_D(a, w, x, 1)
     assert (d - d2) / d < 1e-16
+
+def test_weight_packing(project, accounts):
+    math = project.Math.deploy(sender=accounts[0])
+
+    weight = E18 * 5 // 10
+    lower = E18 // 10
+    upper = E18 * 9 // 10
+
+    packed = math.pack_weight(weight, lower, upper)
+    weight2, lower2, upper2 = math.unpack_weight(packed)
+    assert weight2 == weight
+    assert lower2 == lower
+    assert upper2 == upper

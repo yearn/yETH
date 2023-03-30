@@ -48,6 +48,10 @@ A10: constant(int256) = 11_331_4845_306_682_631_683
 X11: constant(int256) = X10 / 2
 A11: constant(int256) = 1_064_49_445_891_785_942_956
 
+WEIGHT_MASK: constant(uint256) = 2**85 - 1
+LOWER_BAND_SHIFT: constant(int128) = -85
+UPPER_BAND_SHIFT: constant(int128) = -170
+
 @external
 @pure
 def pow_up(_x: uint256, _y: uint256) -> uint256:
@@ -324,6 +328,16 @@ def __exp(_x: int256) -> int256:
 
     # p * c / E20 * f / 100
     return unsafe_div(unsafe_mul(unsafe_div(unsafe_mul(p, c), E20), f), 100)
+
+@external
+@pure
+def pack_weight(_weight: uint256, _lower: uint256, _upper: uint256) -> uint256:
+    return _weight | shift(_lower, -LOWER_BAND_SHIFT) | shift(_upper, -UPPER_BAND_SHIFT)
+
+@external
+@pure
+def unpack_weight(_packed: uint256) -> (uint256, uint256, uint256):
+    return _packed & WEIGHT_MASK, shift(_packed, LOWER_BAND_SHIFT) & WEIGHT_MASK, shift(_packed, UPPER_BAND_SHIFT)
 
 @external
 @pure
