@@ -1,4 +1,4 @@
-from ape.utils import to_int
+import ape
 import pytest
 
 PRECISION = 1_000_000_000_000_000_000
@@ -35,7 +35,7 @@ def test_empty(staking):
     assert staking.previewWithdraw(amt) == 0
     assert staking.previewRedeem(amt) == 0
 
-def test_initial_deposit(chain, deployer, alice, bob, asset, staking):
+def test_deposit(chain, deployer, alice, bob, asset, staking):
     half_time = WEEK_LENGTH // 4
     staking.set_half_time(half_time, sender=deployer)
     amt = 3 * PRECISION
@@ -52,9 +52,10 @@ def test_initial_deposit(chain, deployer, alice, bob, asset, staking):
     assert asset.balanceOf(staking) == amt
     assert staking.balanceOf(bob) == amt
     assert staking.totalSupply() == amt
+    assert staking.known() == amt
     assert staking.vote_weight(bob) == 0
 
-    # check voting power the week after, `t=half_time`
+    # check voting power the week after, `t = half_time`
     ts += 2 * half_time
     chain.mine(timestamp=ts)
     assert staking.vote_weight(bob) == amt // 2
@@ -64,10 +65,47 @@ def test_initial_deposit(chain, deployer, alice, bob, asset, staking):
     chain.mine(timestamp=ts)
     assert staking.vote_weight(bob) == amt // 2
 
-    # but is increased the week after, `t=half_time+week=5*half_time`
+    # but is increased the week after, `t = half_time+week = 5*half_time`
     ts += WEEK_LENGTH
     chain.mine(timestamp=ts)
     assert staking.vote_weight(bob) == amt * 5 // 6
+
+def test_multiple_deposit(chain, alice, asset, staking):
+    amt = PRECISION
+    asset.mint(alice, 2 * amt, sender=alice)
+    asset.approve(staking, MAX, sender=alice)
+    
+    # set time to beginning of a week
+    ts = (chain.pending_timestamp // WEEK_LENGTH + 1) * WEEK_LENGTH
+    chain.pending_timestamp = ts
+
+    # one deposit at beginning of the week
+    with chain.isolate():
+        staking.deposit(amt, sender=alice)
+        chain.mine(timestamp=ts + WEEK_LENGTH)
+        low = staking.vote_weight(alice)
+
+    # second deposit middle of the week
+    with chain.isolate():
+        staking.deposit(amt, sender=alice)
+        chain.pending_timestamp = ts + WEEK_LENGTH // 2
+        staking.deposit(amt, sender=alice)
+        assert asset.balanceOf(alice) == 0
+        assert asset.balanceOf(staking) == 2 * amt
+        assert staking.balanceOf(alice) == 2 * amt
+        assert staking.totalSupply() == 2 * amt
+        assert staking.known() == 2 * amt
+
+        chain.mine(timestamp=ts + WEEK_LENGTH)
+        mid = staking.vote_weight(alice)
+
+    # two deposits at beginning of the week
+    with chain.isolate():
+        staking.deposit(2 * amt, sender=alice)
+        chain.mine(timestamp=ts + WEEK_LENGTH)
+        high = staking.vote_weight(alice)
+
+    assert mid > low and mid < high
 
 def test_pending_reward(alice, asset, staking):
     deposit = 2 * PRECISION
@@ -106,9 +144,9 @@ def test_streaming_reward(chain, alice, asset, staking):
     # streaming is unlocked during the week
     ts += WEEK_LENGTH // 10
     chain.pending_timestamp = ts
+    unlocked = deposit + reward // 10
     with chain.isolate():
         chain.mine()
-        unlocked = deposit + reward // 10
         assert staking.get_amounts() == (0, reward * 9 // 10, unlocked, 0, 0)
 
         # shares have become more valuable
@@ -125,11 +163,10 @@ def test_streaming_reward(chain, alice, asset, staking):
     # .. and is fully unlocked at the end of the week
     ts += WEEK_LENGTH * 9 //10
     chain.pending_timestamp = ts
+    unlocked = deposit + reward
     with chain.isolate():
         chain.mine()
-        unlocked = deposit + reward
         assert staking.get_amounts() == (0, 0, unlocked, 0, 0)
-
         assert staking.previewDeposit(unlocked) == deposit
         assert staking.previewMint(deposit) == unlocked
         assert staking.previewWithdraw(unlocked) == deposit
@@ -192,3 +229,60 @@ def test_reward_split(chain, alice, asset, staking):
         assert staking.get_amounts() == (2 * part, 5 * part, deposit + 13 * part, 0, reward)
     assert staking.update_amounts(sender=alice).return_value == (2 * part, 5 * part, deposit + 13 * part, 0)
     assert staking.known() == reward + deposit
+
+def test_reward_multiple_deposit(chain, alice, bob, asset, staking):
+    deposit = PRECISION
+    reward = 3 * deposit
+
+    asset.mint(alice, deposit, sender=alice)
+    asset.approve(staking, MAX, sender=alice)
+    ts = (chain.pending_timestamp // WEEK_LENGTH + 1) * WEEK_LENGTH
+    chain.pending_timestamp = ts
+    staking.deposit(deposit, sender=alice)
+    asset.mint(staking, reward, sender=alice)
+    staking.update_amounts(sender=alice)
+    
+    # fully unlock rewards
+    ts += 2 * WEEK_LENGTH
+    chain.mine(timestamp=ts)
+
+    asset.mint(bob, deposit, sender=bob)
+    asset.approve(staking, MAX, sender=bob)
+
+    # shares are now more expensive
+    assert staking.previewDeposit(deposit) == deposit // 4
+    assert staking.deposit(deposit, sender=bob).return_value == deposit // 4
+    assert staking.balanceOf(bob) == deposit // 4
+    assert staking.totalSupply() == deposit * 5 // 4
+
+def test_reward_withdraw(chain, alice, bob, asset, staking):
+    deposit = PRECISION
+    reward = 3 * deposit
+
+    asset.mint(alice, deposit, sender=alice)
+    asset.approve(staking, MAX, sender=alice)
+    ts = (chain.pending_timestamp // WEEK_LENGTH + 1) * WEEK_LENGTH
+    chain.pending_timestamp = ts
+    staking.deposit(deposit, sender=alice)
+    asset.mint(staking, reward, sender=alice)
+    staking.update_amounts(sender=alice)
+    
+    # fully unlock rewards
+    ts += 2 * WEEK_LENGTH
+    chain.mine(timestamp=ts)
+
+    # withdraw original deposit
+    assert staking.previewWithdraw(deposit) == deposit // 4
+    with chain.isolate():
+        assert staking.withdraw(deposit, bob, sender=alice)
+        assert staking.balanceOf(alice) == deposit * 3 // 4
+        assert asset.balanceOf(bob) == deposit
+    
+    # cant withdraw someone else's assets without an allowance
+    with ape.reverts():
+        staking.withdraw(deposit, bob, alice, sender=bob)
+    
+    staking.approve(bob, MAX, sender=alice)
+    staking.withdraw(deposit, bob, alice, sender=bob)
+    assert staking.balanceOf(alice) == deposit * 3 // 4
+    assert asset.balanceOf(bob) == deposit
