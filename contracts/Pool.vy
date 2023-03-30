@@ -21,7 +21,7 @@ assets: public(address[MAX_NUM_ASSETS])
 rate_providers: public(address[MAX_NUM_ASSETS])
 balances: public(uint256[MAX_NUM_ASSETS]) # x_i r_i
 rates: public(uint256[MAX_NUM_ASSETS]) # r_i
-weights: public(uint256[MAX_NUM_ASSETS]) # (w_i * n, lower * n, upper * n)
+weights: uint256[MAX_NUM_ASSETS] # (w_i * n, lower * n, upper * n)
 management: public(address)
 guardian: public(address)
 paused: public(bool)
@@ -36,6 +36,9 @@ target_weights: public(uint256[MAX_NUM_ASSETS])
 w_prod: public(uint256) # weight product: product(w_i^(w_i n)) = w^n
 vb_prod: public(uint256) # virtual balance product: D^n / product((x_i r_i / w_i)^(w_i n))
 vb_sum: public(uint256) # virtual balance sum: sum(x_i r_i)
+
+prev_ratio: public(uint256)
+ratio: public(uint256)
 
 PRECISION: constant(uint256) = 1_000_000_000_000_000_000
 MAX_NUM_ASSETS: constant(uint256) = 32
@@ -325,6 +328,8 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
                 break
             if _amounts[asset] == 0:
                 continue
+            self.prev_ratio = prev_ratios[j]
+            self.ratio = self.balances[asset] * PRECISION / vb_sum_final
             self._check_bands(num_assets, prev_ratios[j], self.balances[asset] * PRECISION / vb_sum_final, self.weights[asset])
             j = unsafe_add(j, 1)
 
@@ -460,6 +465,21 @@ def update_weights() -> bool:
     return updated
 
 @external
+@view
+def weight(_asset: uint256) -> (uint256, uint256, uint256):
+    num_assets: uint256 = self.num_assets
+    weight: uint256 = 0
+    lower: uint256 = 0
+    upper: uint256 = 0
+    weight, lower, upper = self._unpack_weight(self.weights[_asset])
+    return weight / num_assets, lower / num_assets, upper / num_assets
+
+@external
+@view
+def weight_packed(_asset: uint256) -> uint256:
+    return self.weights[_asset]
+
+@external
 def pause():
     assert msg.sender == self.management or msg.sender == self.guardian
     assert not self.paused
@@ -558,11 +578,14 @@ def set_weight_bands(
     assert len(_lower) == len(_assets) and len(_upper) == len(_assets)
 
     num_assets: uint256 = self.num_assets
-    for asset in _assets:
+    for i in range(MAX_NUM_ASSETS):
+        if i == len(_assets):
+            break
+        asset: uint256 = _assets[i]
         assert asset < num_assets # dev: index out of bounds
         weight: uint256 = self.weights[asset] & WEIGHT_MASK
-        assert _lower[asset] <= PRECISION and _upper[asset] <= PRECISION # dev: bands out of bounds
-        self.weights[asset] = self._pack_weight(weight, _lower[asset] * num_assets, _upper[asset] * num_assets)
+        assert _lower[i] <= PRECISION and _upper[i] <= PRECISION # dev: bands out of bounds
+        self.weights[asset] = self._pack_weight(weight, _lower[i] * num_assets, _upper[i] * num_assets)
 
 @external
 def set_rate_provider(_asset: uint256, _rate_provider: address):

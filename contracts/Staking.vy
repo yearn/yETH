@@ -395,7 +395,7 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int2
                 # unlocked bucket: rest
                 unlocked += rewards
             else:
-                # net slashing - deal with it below
+                # net penalty - deal with it below
                 streaming = 0
                 pending = 0
 
@@ -425,17 +425,17 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int2
             pending += rewards
         delta += convert(rewards, int256)
     else:
-        # slashing
+        # penalty
         shortage: uint256 = last - current
         delta -= convert(shortage, int256)
         if pending >= shortage:
-            # there are enough pending assets to cover the slashing
+            # there are enough pending assets to cover the penalty
             pending -= shortage
         else:
             shortage -= pending
             pending = 0
             if streaming >= shortage:
-                # there are enough streaming assets to cover the slashing
+                # there are enough streaming assets to cover the penalty
                 streaming -= shortage
             else:
                 # take from unlocked funds

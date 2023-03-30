@@ -8,7 +8,7 @@ interface Pool:
     def rate_providers(_i: uint256) -> address: view
     def balances(_i: uint256) -> uint256: view
     def rates(_i: uint256) -> uint256: view
-    def weights(_i: uint256) -> uint256: view
+    def weight_packed(_i: uint256) -> uint256: view
     def fee_rate() -> uint256: view
     def ramp_step() -> uint256: view
     def ramp_last_time() -> uint256: view
@@ -325,7 +325,7 @@ def _get_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint25
         if updated:
             weight = all_weights[asset]
         else:
-            weight = pool.weights(asset)
+            weight = pool.weight_packed(asset)
         weights.append(weight)
 
         if rate == prev_rate:
@@ -383,23 +383,24 @@ def _get_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint
     if _vb_sum > 0:
         w_prod = PRECISION
         vb_prod = PRECISION
+    lower: uint256 = 0
+    upper: uint256 = 0
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
-        current = pool.weights(asset)
+        current, lower, upper = self._unpack_weight(pool.weight_packed(asset))
         target = pool.target_weights(asset)
-        weight: uint256 = 0
         if duration == 0:
-            weight = target
+            current = target
         else:
             if current > target:
-                weight = current - (current - target) * span / duration
+                current -= (current - target) * span / duration
             else:
-                weight = current + (target - current) * span / duration
-        weights.append(weight)
+                current += (target - current) * span / duration
+        weights.append(self._pack_weight(current, lower, upper))
         if _vb_sum > 0:
-            w_prod = unsafe_div(unsafe_mul(w_prod, self._pow_up(unsafe_div(weight, num_assets), weight)), PRECISION)
-            vb_prod = unsafe_div(unsafe_mul(vb_prod, supply), self._pow_down(unsafe_div(unsafe_mul(pool.balances(asset), PRECISION), unsafe_div(weight, num_assets)), weight))
+            w_prod = unsafe_div(unsafe_mul(w_prod, self._pow_up(unsafe_div(current, num_assets), current)), PRECISION)
+            vb_prod = unsafe_div(unsafe_mul(vb_prod, supply), self._pow_down(unsafe_div(unsafe_mul(pool.balances(asset), PRECISION), unsafe_div(current, num_assets)), current))
 
     return amplification, w_prod, vb_prod, weights, True
 
@@ -491,6 +492,16 @@ def _calc_vb(_weight: uint256, _y: uint256, _supply: uint256, _amplification: ui
         y = yp
     
     raise # dev: no convergence
+
+@internal
+@pure
+def _pack_weight(_weight: uint256, _lower: uint256, _upper: uint256) -> uint256:
+    return _weight | shift(_lower, -LOWER_BAND_SHIFT) | shift(_upper, -UPPER_BAND_SHIFT)
+
+@internal
+@pure
+def _unpack_weight(_packed: uint256) -> (uint256, uint256, uint256):
+    return _packed & WEIGHT_MASK, shift(_packed, LOWER_BAND_SHIFT) & WEIGHT_MASK, shift(_packed, UPPER_BAND_SHIFT)
 
 @internal
 @pure
