@@ -386,7 +386,7 @@ def remove_liquidity(_lp_amount: uint256, _min_amounts: DynArray[uint256, MAX_NU
 
 @external
 @nonreentrant('lock')
-def remove_liquidity_single(_asset: uint256, _lp_amount: uint256, _min_amount: uint256, _receiver: address = msg.sender):
+def remove_liquidity_single(_asset: uint256, _lp_amount: uint256, _min_amount: uint256, _receiver: address = msg.sender) -> uint256:
     assert _asset < MAX_NUM_ASSETS # dev: index out of bounds
 
     # update rate
@@ -444,6 +444,7 @@ def remove_liquidity_single(_asset: uint256, _lp_amount: uint256, _min_amount: u
     self.vb_sum = vb_sum
 
     assert ERC20(self.assets[_asset]).transfer(_receiver, dx, default_return_value=True)
+    return dx
 
 @external
 def update_rates(_assets: uint256):
