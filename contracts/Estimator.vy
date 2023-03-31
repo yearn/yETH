@@ -9,7 +9,7 @@ interface Pool:
     def balances(_i: uint256) -> uint256: view
     def rates(_i: uint256) -> uint256: view
     def weight_packed(_i: uint256) -> uint256: view
-    def fee_rate() -> uint256: view
+    def swap_fee_rate() -> uint256: view
     def ramp_step() -> uint256: view
     def ramp_last_time() -> uint256: view
     def ramp_stop_time() -> uint256: view
@@ -99,7 +99,7 @@ def get_dy(_i: uint256, _j: uint256, _dx: uint256) -> uint256:
     prev_vbx: uint256 = pool.balances(_i) * rates[0] / pool.rates(_i)
     prev_vby: uint256 = pool.balances(_j) * rates[1] / pool.rates(_j)
 
-    dx_fee: uint256 = _dx * pool.fee_rate() / PRECISION
+    dx_fee: uint256 = _dx * pool.swap_fee_rate() / PRECISION
     dvbx: uint256 = (_dx - dx_fee) * rates[0] / PRECISION
     vbx: uint256 = prev_vbx + dvbx
     
@@ -146,7 +146,7 @@ def get_dx(_i: uint256, _j: uint256, _dy: uint256) -> uint256:
     # calulate new balance of in token
     vbx: uint256 = self._calc_vb(weights[_i], prev_vbx, supply, amplification, w_prod, vb_prod, vb_sum)
     dx: uint256 = (vbx - prev_vbx) * PRECISION / rates[0]
-    dx_fee: uint256 = pool.fee_rate()
+    dx_fee: uint256 = pool.swap_fee_rate()
     dx_fee = dx * dx_fee / (PRECISION - dx_fee)
     dx += dx_fee
     vbx += dx_fee * rates[0] / PRECISION
@@ -195,7 +195,7 @@ def get_add_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
 
     vb_prod_final: uint256 = vb_prod
     vb_sum_final: uint256 = vb_sum
-    fee_rate: uint256 = pool.fee_rate() / 2
+    fee_rate: uint256 = pool.swap_fee_rate() / 2
     prev_vb_sum: uint256 = vb_sum
     balances: DynArray[uint256, MAX_NUM_ASSETS] = []
     j: uint256 = 0
@@ -289,7 +289,7 @@ def get_remove_single_lp(_asset: uint256, _lp_amount: uint256) -> uint256:
     # calculate new balance of asset
     vb: uint256 = self._calc_vb(weight, prev_vb, supply, amplification, w_prod, vb_prod, vb_sum)
     dvb: uint256 = prev_vb - vb
-    fee: uint256 = dvb * pool.fee_rate() / 2 / PRECISION
+    fee: uint256 = dvb * pool.swap_fee_rate() / 2 / PRECISION
     dvb -= fee
     vb += fee
     dx: uint256 = dvb * PRECISION / rates[0]

@@ -171,7 +171,7 @@ def test_swap_fee(project, chain, deployer, alice, bob, token):
     # swap with fee
     fee_rate = PRECISION * 3 // 1000 # 10%
     pool.set_staking(deployer, sender=deployer)
-    pool.set_fee_rate(fee_rate, sender=deployer)
+    pool.set_swap_fee_rate(fee_rate, sender=deployer)
     
     expect = estimator.get_dy(0, 1, swap)
     pool.swap(0, 1, swap, 0, sender=bob)
@@ -267,7 +267,7 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     # swap with fee
     chain.restore(id)
     pool.set_staking(deployer, sender=deployer)
-    pool.set_fee_rate(fee_rate, sender=deployer)
+    pool.set_swap_fee_rate(fee_rate, sender=deployer)
 
     expect = estimator.get_dx(0, 1, swap)
     pool.swap_exact_out(0, 1, swap, MAX, sender=bob)

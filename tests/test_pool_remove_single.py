@@ -116,7 +116,7 @@ def test_fee(chain, deployer, alice, bob, weights, pool, estimator):
 
     # set a fee
     fee_rate = PRECISION // 10
-    pool.set_fee_rate(fee_rate, sender=deployer)
+    pool.set_swap_fee_rate(fee_rate, sender=deployer)
     exp = estimator.get_remove_single_lp(0, PRECISION)
     res = pool.remove_liquidity_single(0, PRECISION, 0, bob, sender=alice).return_value
     bal = assets[0].balanceOf(bob)

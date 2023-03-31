@@ -26,7 +26,7 @@ management: public(address)
 guardian: public(address)
 paused: public(bool)
 killed: public(bool)
-fee_rate: public(uint256)
+swap_fee_rate: public(uint256)
 ramp_step: public(uint256)
 ramp_last_time: public(uint256)
 ramp_stop_time: public(uint256)
@@ -34,11 +34,8 @@ target_amplification: public(uint256)
 target_weights: public(uint256[MAX_NUM_ASSETS])
 
 w_prod: public(uint256) # weight product: product(w_i^(w_i n)) = w^n
-vb_prod: public(uint256) # virtual balance product: D^n / product((x_i r_i / w_i)^(w_i n))
-vb_sum: public(uint256) # virtual balance sum: sum(x_i r_i)
-
-prev_ratio: public(uint256)
-ratio: public(uint256)
+vb_prod: public(uint256) # virtual balance product: D^n / product((b_i r_i / w_i)^(w_i n))
+vb_sum: public(uint256) # virtual balance sum: sum(b_i r_i)
 
 PRECISION: constant(uint256) = 1_000_000_000_000_000_000
 MAX_NUM_ASSETS: constant(uint256) = 32
@@ -144,7 +141,7 @@ def swap(_i: uint256, _j: uint256, _dx: uint256, _min_dy: uint256, _receiver: ad
     weight_x: uint256 = self.weights[_i]
     weight_y: uint256 = self.weights[_j]
 
-    dx_fee: uint256 = _dx * self.fee_rate / PRECISION
+    dx_fee: uint256 = _dx * self.swap_fee_rate / PRECISION
     dvbx: uint256 = (_dx - dx_fee) * self.rates[_i] / PRECISION
     vbx: uint256 = prev_vbx + dvbx
     
@@ -219,7 +216,7 @@ def swap_exact_out(_i: uint256, _j: uint256, _dy: uint256, _max_dx: uint256, _re
     # calulate new balance of in token
     vbx: uint256 = self._calc_vb(weight_x, prev_vbx, self.supply, self.amplification, self.w_prod, vb_prod, vb_sum)
     dx: uint256 = (vbx - prev_vbx) * PRECISION / self.rates[_i]
-    dx_fee: uint256 = self.fee_rate
+    dx_fee: uint256 = self.swap_fee_rate
     dx_fee = dx * dx_fee / (PRECISION - dx_fee)
     dx += dx_fee
     vbx += dx_fee * self.rates[_i] / PRECISION
@@ -280,7 +277,7 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
 
     vb_prod_final: uint256 = vb_prod
     vb_sum_final: uint256 = vb_sum
-    fee_rate: uint256 = self.fee_rate / 2
+    fee_rate: uint256 = self.swap_fee_rate / 2
     prev_vb_sum: uint256 = vb_sum
     prev_ratios: DynArray[uint256, MAX_NUM_ASSETS] = []
     for asset in range(MAX_NUM_ASSETS):
@@ -328,8 +325,6 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
                 break
             if _amounts[asset] == 0:
                 continue
-            self.prev_ratio = prev_ratios[j]
-            self.ratio = self.balances[asset] * PRECISION / vb_sum_final
             self._check_bands(num_assets, prev_ratios[j], self.balances[asset] * PRECISION / vb_sum_final, self.weights[asset])
             j = unsafe_add(j, 1)
 
@@ -416,7 +411,7 @@ def remove_liquidity_single(_asset: uint256, _lp_amount: uint256, _min_amount: u
     # calculate new balance of asset
     vb: uint256 = self._calc_vb(weight, prev_vb, supply, self.amplification, self.w_prod, vb_prod, vb_sum)
     dvb: uint256 = prev_vb - vb
-    fee: uint256 = dvb * self.fee_rate / 2 / PRECISION
+    fee: uint256 = dvb * self.swap_fee_rate / 2 / PRECISION
     dvb -= fee
     vb += fee
     dx: uint256 = dvb * PRECISION / self.rates[_asset]
@@ -564,10 +559,11 @@ def add_asset(
     PoolToken(token).mint(_receiver, supply - prev_supply)
 
 @external
-def set_fee_rate(_fee_rate: uint256):
+def set_swap_fee_rate(_fee_rate: uint256):
     assert msg.sender == self.management
-    # TODO: reasonable bounds
-    self.fee_rate = _fee_rate
+    assert _fee_rate <= PRECISION / 10
+    self.swap_fee_rate = _fee_rate
+    log SetSwapFeeRate(_fee_rate)
 
 @external
 def set_weight_bands(

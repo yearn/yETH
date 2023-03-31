@@ -181,7 +181,7 @@ def test_balanced_fee(chain, deployer, alice, bob, token, weights, pool, estimat
         bal_no_fee = token.balanceOf(bob)
     
     # set a fee
-    pool.set_fee_rate(PRECISION // 10, sender=deployer) # 10%
+    pool.set_swap_fee_rate(PRECISION // 10, sender=deployer) # 10%
     exp = estimator.get_add_lp(amts2)
     pool.add_liquidity(amts2, 0, bob, sender=alice)
     bal = token.balanceOf(bob)
@@ -215,7 +215,7 @@ def test_fee(chain, deployer, alice, bob, token, weights, pool, estimator):
         bal_no_fee = token.balanceOf(bob)
     
     # set a fee
-    pool.set_fee_rate(PRECISION // 10, sender=deployer) # 10%
+    pool.set_swap_fee_rate(PRECISION // 10, sender=deployer) # 10%
     exp = estimator.get_add_lp(amts)
     pool.add_liquidity(amts, 0, bob, sender=alice)
     bal = token.balanceOf(bob)
