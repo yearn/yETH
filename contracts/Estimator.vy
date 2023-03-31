@@ -293,6 +293,7 @@ def get_remove_single_lp(_asset: uint256, _lp_amount: uint256) -> uint256:
     dvb -= fee
     vb += fee
     dx: uint256 = dvb * PRECISION / rates[0]
+    vb_sum = vb_sum + vb
 
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
