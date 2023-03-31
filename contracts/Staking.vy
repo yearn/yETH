@@ -43,6 +43,19 @@ FEE_PRECISION: constant(uint256) = 10_000
 DAY_LENGTH: constant(uint256) = 24 * 60 * 60
 WEEK_LENGTH: constant(uint256) = 7 * DAY_LENGTH
 
+event Rewards:
+    pending: uint256
+    streaming: uint256
+    unlocked: uint256
+    delta: int256
+
+event SetFeeRate:
+    fee_rate: uint256
+
+event SetMinter:
+    account: indexed(address)
+    minter: bool
+
 # ERC20 events
 event Transfer:
     sender: indexed(address)
@@ -53,10 +66,6 @@ event Approval:
     owner: indexed(address)
     spender: indexed(address)
     value: uint256
-
-event SetMinter:
-    account: indexed(address)
-    minter: bool
 
 # ERC4626 events
 event Deposit:
@@ -245,6 +254,7 @@ def vote_weight(_account: address) -> uint256:
 def set_fee_rate(_fee_rate: uint256):
     assert msg.sender == self.treasury
     self.fee_rate = _fee_rate
+    log SetFeeRate(_fee_rate)
 
 @external
 def set_half_time(_half_time: uint256):
@@ -337,7 +347,8 @@ def _update_unlocked() -> uint256:
     delta: int256 = 0
     pending, streaming, unlocked, unclaimed, delta = self._get_amounts(current)
 
-    # TODO: emit event
+    if delta != 0:
+        log Rewards(pending, streaming, unlocked, delta)
 
     self.updated = block.timestamp
     self.known = current - unclaimed

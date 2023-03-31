@@ -37,6 +37,85 @@ w_prod: public(uint256) # weight product: product(w_i^(w_i n)) = w^n
 vb_prod: public(uint256) # virtual balance product: D^n / product((b_i r_i / w_i)^(w_i n))
 vb_sum: public(uint256) # virtual balance sum: sum(b_i r_i)
 
+event Swap:
+    account: indexed(address)
+    receiver: indexed(address)
+    asset_in: uint256
+    asset_out: uint256
+    amount_in: uint256
+    amount_out: uint256
+
+event AddLiquidity:
+    account: indexed(address)
+    receiver: indexed(address)
+    amounts_in: DynArray[uint256, MAX_NUM_ASSETS]
+    lp_amount: uint256
+
+event RemoveLiquidity:
+    account: indexed(address)
+    receiver: indexed(address)
+    lp_amount: uint256
+
+event RemoveLiquiditySingle:
+    account: indexed(address)
+    receiver: indexed(address)
+    asset: uint256
+    amount_out: uint256
+    lp_amount: uint256
+
+event RateUpdate:
+    asset: indexed(uint256)
+    rate: uint256
+
+event Pause:
+    account: indexed(address)
+
+event Unpause:
+    account: indexed(address)
+
+event Kill: pass
+
+event AddAsset:
+    index: uint256
+    asset: address
+    rate_provider: address
+    rate: uint256
+    weight: uint256
+    amount: uint256
+
+event SetSwapFeeRate:
+    rate: uint256
+
+event SetWeightBand:
+    asset: uint256
+    lower: uint256
+    upper: uint256
+
+event SetRateProvider:
+    asset: uint256
+    rate_provider: address
+
+event SetRamp:
+    amplification: uint256
+    weights: DynArray[uint256, MAX_NUM_ASSETS]
+    duration: uint256
+    start: uint256
+
+event SetRampStep:
+    ramp_step: uint256
+
+event StopRamp: pass
+
+event SetStaking:
+    staking: address
+
+event SetManagement:
+    management: address
+
+event SetGuardian:
+    acount: indexed(address)
+    guardian: address
+
 PRECISION: constant(uint256) = 1_000_000_000_000_000_000
 MAX_NUM_ASSETS: constant(uint256) = 32
 ALL_ASSETS_FLAG: constant(uint256) = 14528991250861404666834535435384615765856667510756806797353855100662256435713
@@ -184,6 +263,7 @@ def swap(_i: uint256, _j: uint256, _dx: uint256, _min_dy: uint256, _receiver: ad
     # transfer tokens
     assert ERC20(self.assets[_i]).transferFrom(msg.sender, self, _dx, default_return_value=True)
     assert ERC20(self.assets[_j]).transfer(_receiver, dy, default_return_value=True)
+    log Swap(msg.sender, _receiver, _i, _j, _dx, dy)
 
     return dy
 
@@ -243,6 +323,7 @@ def swap_exact_out(_i: uint256, _j: uint256, _dy: uint256, _max_dx: uint256, _re
 
     assert ERC20(self.assets[_i]).transferFrom(msg.sender, self, dx, default_return_value=True)
     assert ERC20(self.assets[_j]).transfer(_receiver, _dy, default_return_value=True)
+    log Swap(msg.sender, _receiver, _i, _j, dx, _dy)
 
     return dx
 
@@ -333,6 +414,7 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
     mint: uint256 = supply - prev_supply
     assert mint > 0 and mint >= _min_lp_amount # dev: slippage
     PoolToken(token).mint(_receiver, mint)
+    log AddLiquidity(msg.sender, _receiver, _amounts, mint)
 
     supply_final: uint256 = supply
     if prev_supply > 0:
@@ -361,6 +443,7 @@ def remove_liquidity(_lp_amount: uint256, _min_amounts: DynArray[uint256, MAX_NU
     supply: uint256 = prev_supply - _lp_amount
     self.supply = supply
     PoolToken(token).burn(msg.sender, _lp_amount)
+    log RemoveLiquidity(msg.sender, _receiver, _lp_amount)
 
     # update necessary variables and transfer assets
     for asset in range(MAX_NUM_ASSETS):
@@ -439,6 +522,7 @@ def remove_liquidity_single(_asset: uint256, _lp_amount: uint256, _min_amount: u
     self.vb_sum = vb_sum
 
     assert ERC20(self.assets[_asset]).transfer(_receiver, dx, default_return_value=True)
+    log RemoveLiquiditySingle(msg.sender, _receiver, _asset, dx, _lp_amount)
     return dx
 
 @external
@@ -480,18 +564,21 @@ def pause():
     assert msg.sender == self.management or msg.sender == self.guardian
     assert not self.paused
     self.paused = True
+    log Pause(msg.sender)
 
 @external
 def unpause():
     assert msg.sender == self.management or msg.sender == self.guardian
     assert self.paused and not self.killed
     self.paused = False
+    log Unpause(msg.sender)
 
 @external
 def kill():
     assert msg.sender == self.management
     assert self.paused and not self.killed
     self.killed = True
+    log Kill()
 
 @external
 def add_asset(
@@ -557,6 +644,7 @@ def add_asset(
     self.vb_sum = vb_sum
 
     PoolToken(token).mint(_receiver, supply - prev_supply)
+    log AddAsset(prev_num_assets, _asset, _rate_provider, rate, _weight, _amount)
 
 @external
 def set_swap_fee_rate(_fee_rate: uint256):
@@ -583,6 +671,7 @@ def set_weight_bands(
         weight: uint256 = self.weights[asset] & WEIGHT_MASK
         assert _lower[i] <= PRECISION and _upper[i] <= PRECISION # dev: bands out of bounds
         self.weights[asset] = self._pack_weight(weight, _lower[i] * num_assets, _upper[i] * num_assets)
+        log SetWeightBand(asset, _lower[i], _upper[i])
 
 @external
 def set_rate_provider(_asset: uint256, _rate_provider: address):
@@ -591,6 +680,7 @@ def set_rate_provider(_asset: uint256, _rate_provider: address):
 
     self.rate_providers[_asset] = _rate_provider
     self.vb_prod, self.vb_sum = self._update_rates(_asset + 1, self.vb_prod, self.vb_sum)
+    log SetRateProvider(_asset, _rate_provider)
 
 @external
 def set_ramp(
@@ -628,33 +718,39 @@ def set_ramp(
         total += _weights[asset]
         self.target_weights[asset] = _weights[asset] * num_assets
     assert total == PRECISION # dev: weights dont add up
+    log SetRamp(_amplification, _weights, _duration, _start)
 
 @external
 def set_ramp_step(_ramp_step: uint256):
     assert msg.sender == self.management
     assert _ramp_step > 0
     self.ramp_step = _ramp_step
+    log SetRampStep(_ramp_step)
 
 @external
 def stop_ramp():
     assert msg.sender == self.management
     self.ramp_last_time = 0
     self.ramp_stop_time = 0
+    log StopRamp()
 
 @external
 def set_staking(_staking: address):
     assert msg.sender == self.management
     self.staking = _staking
+    log SetStaking(_staking)
 
 @external
 def set_management(_management: address):
     assert msg.sender == self.management
     self.management = _management
+    log SetManagement(_management)
 
 @external
 def set_guardian(_guardian: address):
     assert msg.sender == self.management or msg.sender == self.guardian
     self.guardian = _guardian
+    log SetGuardian(msg.sender, _guardian)
 
 @internal
 def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256):
@@ -677,6 +773,7 @@ def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uin
         if rate == prev_rate:
             continue
         self.rates[asset] = rate
+        log RateUpdate(asset, rate)
 
         if prev_rate > 0 and vb_sum > 0:
             # factor out old rate and factor in new
