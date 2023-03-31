@@ -104,17 +104,17 @@ def get_dy(_i: uint256, _j: uint256, _dx: uint256) -> uint256:
     vbx: uint256 = prev_vbx + dvbx
     
     # update x_i and remove x_j from variables
-    vb_prod = vb_prod * self._pow_up(prev_vby, weights[1] & WEIGHT_MASK) / self._pow_down(vbx * PRECISION / prev_vbx, weights[0] & WEIGHT_MASK)
+    vb_prod = vb_prod * self._pow_up(prev_vby, weights[_j] & WEIGHT_MASK) / self._pow_down(vbx * PRECISION / prev_vbx, weights[_i] & WEIGHT_MASK)
     vb_sum = vb_sum + dvbx - prev_vby
 
     # calulate new balance of out token
-    vby: uint256 = self._calc_vb(weights[1], prev_vby, supply, amplification, w_prod, vb_prod, vb_sum)
+    vby: uint256 = self._calc_vb(weights[_j], prev_vby, supply, amplification, w_prod, vb_prod, vb_sum)
     vb_sum += vby + dx_fee * rates[0] / PRECISION
 
     # check bands
     num_assets: uint256 = pool.num_assets()
-    self._check_bands(num_assets, prev_vbx * PRECISION / prev_vb_sum, vbx * PRECISION / vb_sum, weights[0])
-    self._check_bands(num_assets, prev_vby * PRECISION / prev_vb_sum, vby * PRECISION / vb_sum, weights[1])
+    self._check_bands(num_assets, prev_vbx * PRECISION / prev_vb_sum, vbx * PRECISION / vb_sum, weights[_i])
+    self._check_bands(num_assets, prev_vby * PRECISION / prev_vb_sum, vby * PRECISION / vb_sum, weights[_j])
 
     return (prev_vby - vby) * PRECISION / rates[1]
 
@@ -140,11 +140,11 @@ def get_dx(_i: uint256, _j: uint256, _dy: uint256) -> uint256:
     vby: uint256 = prev_vby - dvby
 
     # update x_j and remove x_i from variables
-    vb_prod = vb_prod * self._pow_up(prev_vbx, weights[0] & WEIGHT_MASK) / self._pow_down(vby * PRECISION / prev_vby, weights[1] & WEIGHT_MASK)
+    vb_prod = vb_prod * self._pow_up(prev_vbx, weights[_i] & WEIGHT_MASK) / self._pow_down(vby * PRECISION / prev_vby, weights[_j] & WEIGHT_MASK)
     vb_sum = vb_sum - dvby - prev_vbx
 
     # calulate new balance of in token
-    vbx: uint256 = self._calc_vb(weights[0], prev_vbx, supply, amplification, w_prod, vb_prod, vb_sum)
+    vbx: uint256 = self._calc_vb(weights[_i], prev_vbx, supply, amplification, w_prod, vb_prod, vb_sum)
     dx: uint256 = (vbx - prev_vbx) * PRECISION / rates[0]
     dx_fee: uint256 = pool.fee_rate()
     dx_fee = dx * dx_fee / (PRECISION - dx_fee)
@@ -153,8 +153,8 @@ def get_dx(_i: uint256, _j: uint256, _dy: uint256) -> uint256:
 
     # check bands
     num_assets: uint256 = pool.num_assets()
-    self._check_bands(num_assets, prev_vbx * PRECISION / prev_vb_sum, vbx * PRECISION / vb_sum, weights[0])
-    self._check_bands(num_assets, prev_vby * PRECISION / prev_vb_sum, vby * PRECISION / vb_sum, weights[1])
+    self._check_bands(num_assets, prev_vbx * PRECISION / prev_vb_sum, vbx * PRECISION / vb_sum, weights[_i])
+    self._check_bands(num_assets, prev_vby * PRECISION / prev_vb_sum, vby * PRECISION / vb_sum, weights[_j])
     
     return dx
 
@@ -213,7 +213,7 @@ def get_add_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
         balances.append(vb)
 
         if prev_supply > 0:
-            weight: uint256 = weights[j] & WEIGHT_MASK
+            weight: uint256 = weights[asset] & WEIGHT_MASK
 
             # update product and sum of virtual balances
             vb_prod_final = vb_prod_final * self._pow_up(prev_vb * PRECISION / vb, weight) / PRECISION
@@ -233,7 +233,7 @@ def get_add_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
             break
         if _amounts[asset] == 0:
             continue
-        self._check_bands(num_assets, pool.balances(asset) * rates[j] / pool.rates(asset) * PRECISION / prev_vb_sum, balances[j] * PRECISION / vb_sum_final, weights[j])
+        self._check_bands(num_assets, pool.balances(asset) * rates[j] / pool.rates(asset) * PRECISION / prev_vb_sum, balances[j] * PRECISION / vb_sum_final, weights[asset])
         j = unsafe_add(j, 1)
 
     supply: uint256 = 0
@@ -275,7 +275,7 @@ def get_remove_single_lp(_asset: uint256, _lp_amount: uint256) -> uint256:
 
     supply: uint256 = prev_supply - _lp_amount
     prev_vb: uint256 = pool.balances(_asset) * rates[0] / pool.rates(_asset)
-    weight: uint256 = weights[0] & WEIGHT_MASK
+    weight: uint256 = weights[_asset] & WEIGHT_MASK
 
     # update variables
     num_assets: uint256 = pool.num_assets()
@@ -294,6 +294,15 @@ def get_remove_single_lp(_asset: uint256, _lp_amount: uint256) -> uint256:
     vb += fee
     dx: uint256 = dvb * PRECISION / rates[0]
 
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
+            break
+        if asset == _asset:
+            self._check_bands(num_assets, prev_vb * PRECISION / prev_vb_sum, vb * PRECISION / vb_sum, weights[asset])
+        else:
+            bal: uint256 = pool.balances(asset)
+            self._check_bands(num_assets, bal * PRECISION / prev_vb_sum, bal * PRECISION / vb_sum, weights[asset])
+
     return dx
 
 @internal
@@ -306,10 +315,14 @@ def _get_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint25
     w_prod: uint256 = 0
     vb_prod: uint256 = 0
     vb_sum: uint256 = _vb_sum
-    all_weights: DynArray[uint256, MAX_NUM_ASSETS] = []
     updated: bool = False
-    amplification, w_prod, vb_prod, all_weights, updated = self._get_weights(_vb_prod, _vb_sum)
+    amplification, w_prod, vb_prod, weights, updated = self._get_weights(_vb_prod, _vb_sum)
     num_assets: uint256 = pool.num_assets()
+
+    if not updated:
+        for asset in range(MAX_NUM_ASSETS):
+            weights.append(pool.weight_packed(asset))
+
     for i in range(MAX_NUM_ASSETS):
         asset: uint256 = shift(_assets, unsafe_mul(-8, convert(i, int128))) & 255
         if asset == 0 or asset > num_assets:
@@ -321,19 +334,12 @@ def _get_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint25
         assert rate > 0 # dev: no rate
         rates.append(rate)
 
-        weight: uint256 = 0
-        if updated:
-            weight = all_weights[asset]
-        else:
-            weight = pool.weight_packed(asset)
-        weights.append(weight)
-
         if rate == prev_rate:
             continue
 
         if prev_rate > 0 and vb_sum > 0:
             # factor out old rate and factor in new
-            vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, weight & WEIGHT_MASK) / PRECISION
+            vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, weights[asset] & WEIGHT_MASK) / PRECISION
 
             prev_bal: uint256 = pool.balances(asset)
             bal: uint256 = prev_bal * rate / prev_rate
