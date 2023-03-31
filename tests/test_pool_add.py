@@ -190,7 +190,7 @@ def test_balanced_fee(chain, deployer, alice, bob, token, weights, pool, estimat
     # balanced deposits arent charged anything
     assert abs(bal - bal_no_fee) / bal_no_fee < 1e-16
 
-def test__fee(chain, deployer, alice, bob, token, weights, pool, estimator):
+def test_fee(chain, deployer, alice, bob, token, weights, pool, estimator):
     assets, provider, pool = pool
     
     # mint assets
@@ -411,7 +411,7 @@ def test_ramp_amplification(chain, deployer, alice, bob, token, weights, pool, e
     # even lower penalty
     assert end > mid
 
-def test_band(deployer, alice, bob, weights, pool, estimator):
+def test_band(chain, deployer, alice, bob, weights, pool, estimator):
     assets, provider, pool = pool
     
     # mint assets
@@ -426,13 +426,19 @@ def test_band(deployer, alice, bob, weights, pool, estimator):
         asset.mint(alice, amt, sender=alice)
     pool.add_liquidity(amts, 0, deployer, sender=alice)
 
+    amt = total * PRECISION * 21 // 100 // provider.rate(assets[3]) # +10.4% after deposit
+    amts = [amt if i == 3 else 0 for i in range(n)]
+    assets[3].mint(alice, amt, sender=alice)
+
+    # deposit will work before setting a band
+    with chain.isolate():
+        estimator.get_add_lp(amts)
+        pool.add_liquidity(amts, 0, bob, sender=alice)
+
     # set band
     pool.set_weight_bands([3], [PRECISION], [PRECISION // 10], sender=deployer)
 
-    # try to deposit
-    amt = total * PRECISION * 21 // 100 // provider.rate(assets[3]) # +10.4% after deposit
-    assets[3].mint(alice, amt, sender=alice)
-    amts = [amt if i == 3 else 0 for i in range(n)]
+    # deposit wont work
     with ape.reverts():
         estimator.get_add_lp(amts)
     with ape.reverts():
