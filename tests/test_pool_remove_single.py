@@ -322,7 +322,38 @@ def test_lower_band(chain, deployer, alice, bob, weights, pool, estimator):
         pool.remove_liquidity_single(3, lp, 0, bob, sender=deployer)
 
     # set band
-    pool.set_weight_bands([3], [PRECISION // 100], [PRECISION // 100], sender=deployer)
+    pool.set_weight_bands([3], [PRECISION // 100], [PRECISION], sender=deployer)
+
+    # withdrawing wont work anymore
+    with ape.reverts():
+        estimator.get_remove_single_lp(3, lp)
+    with ape.reverts():
+        pool.remove_liquidity_single(3, lp, 0, bob, sender=deployer)
+
+def test_upper_band(chain, deployer, alice, bob, weights, pool, estimator):
+    assets, provider, pool = pool
+    
+    # mint assets
+    n = len(assets)
+    total = 1_000 * PRECISION
+    amts = []
+    for i in range(n):
+        asset = assets[i]
+        asset.approve(pool, MAX, sender=alice)
+        amt = total * weights[i] // provider.rate(asset)
+        amts.append(amt)
+        asset.mint(alice, amt, sender=alice)
+    pool.add_liquidity(amts, 0, deployer, sender=alice)
+
+    lp = total * 4 // 100 # +1.2% after withdrawal
+
+    # withdraw will work before setting a band
+    with chain.isolate():
+        estimator.get_remove_single_lp(3, lp)
+        pool.remove_liquidity_single(3, lp, 0, bob, sender=deployer)
+
+    # set band of other asset
+    pool.set_weight_bands([2], [PRECISION], [PRECISION // 100], sender=deployer)
 
     # withdrawing wont work anymore
     with ape.reverts():
