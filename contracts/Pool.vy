@@ -1,4 +1,9 @@
 # @version 0.3.7
+"""
+@title yETH weighted stableswap pool
+@author 0xkorin, Yearn Finance
+@license Copyright (c) Yearn Finance, 2023 - all rights reserved
+"""
 
 from vyper.interfaces import ERC20
 
@@ -175,6 +180,16 @@ def __init__(
     _rate_providers: DynArray[address, MAX_NUM_ASSETS], 
     _weights: DynArray[uint256, MAX_NUM_ASSETS]
 ):
+    """
+    @notice Constructor
+    @param _token The address of the pool LP token
+    @param _amplification The pool amplification factor (in 18 decimals)
+    @param _assets Array of addresses of tokens in the pool
+    @param _rate_providers Array of addresses of rate provider for each asset
+    @param _weights Weight of each asset (in 18 decimals)
+    @dev Only non-rebasing assets with 18 decimals are supported
+    @dev Weights need to sum to unity
+    """
     num_assets: uint256 = len(_assets)
     assert num_assets >= 2
     assert len(_rate_providers) == num_assets and len(_weights) == num_assets
@@ -203,7 +218,22 @@ def __init__(
 
 @external
 @nonreentrant('lock')
-def swap(_i: uint256, _j: uint256, _dx: uint256, _min_dy: uint256, _receiver: address = msg.sender) -> uint256:
+def swap(
+    _i: uint256, 
+    _j: uint256, 
+    _dx: uint256, 
+    _min_dy: uint256, 
+    _receiver: address = msg.sender
+) -> uint256:
+    """
+    @notice Swap one pool asset for another
+    @param _i Index of the input asset
+    @param _j Index of the output asset
+    @param _dx Amount of input asset to take from caller
+    @param _min_dy Minimum amount of output asset to send
+    @param _receiver Account to receive the output asset
+    @return The amount of output asset sent
+    """
     assert _i != _j # dev: same input and output asset
     assert _i < MAX_NUM_ASSETS and _j < MAX_NUM_ASSETS # dev: index out of bounds
     assert _dx > 0 # dev: zero amount
@@ -269,7 +299,23 @@ def swap(_i: uint256, _j: uint256, _dx: uint256, _min_dy: uint256, _receiver: ad
 
 @external
 @nonreentrant('lock')
-def swap_exact_out(_i: uint256, _j: uint256, _dy: uint256, _max_dx: uint256, _receiver: address = msg.sender) -> uint256:
+def swap_exact_out(
+    _i: uint256, 
+    _j: uint256, 
+    _dy: uint256, 
+    _max_dx: uint256, 
+    _receiver: address = msg.sender
+) -> uint256:
+    """
+    @notice Swap one pool asset for another, with a fixed output amount
+    @param _i Index of the input asset
+    @param _j Index of the output asset
+    @param _dy Amount of input asset to send
+    @param _max_dx Maximum amount of output asset to take from caller
+    @param _receiver Account to receive the output asset
+    @return The amount of input asset taken
+    """
+    
     assert _i != _j # dev: same input and output asset
     assert _i < MAX_NUM_ASSETS and _j < MAX_NUM_ASSETS # dev: index out of bounds
     assert _dy > 0 # dev: zero amount
@@ -329,7 +375,19 @@ def swap_exact_out(_i: uint256, _j: uint256, _dy: uint256, _max_dx: uint256, _re
 
 @external
 @nonreentrant('lock')
-def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: uint256, _receiver: address = msg.sender) -> uint256:
+def add_liquidity(
+    _amounts: DynArray[uint256, MAX_NUM_ASSETS], 
+    _min_lp_amount: uint256, 
+    _receiver: address = msg.sender
+) -> uint256:
+    """
+    @notice Deposit assets into the pool
+    @param _amounts Array of amount for each asset to take from caller
+    @param _min_lp_amount Minimum amount of LP tokens to mint
+    @param _receiver Account to receive the LP tokens
+    @return The amount of LP tokens minted
+    """
+    
     num_assets: uint256 = self.num_assets
     assert len(_amounts) == num_assets
 
@@ -433,7 +491,18 @@ def add_liquidity(_amounts: DynArray[uint256, MAX_NUM_ASSETS], _min_lp_amount: u
 
 @external
 @nonreentrant('lock')
-def remove_liquidity(_lp_amount: uint256, _min_amounts: DynArray[uint256, MAX_NUM_ASSETS], _receiver: address = msg.sender):
+def remove_liquidity(
+    _lp_amount: uint256, 
+    _min_amounts: DynArray[uint256, MAX_NUM_ASSETS], 
+    _receiver: address = msg.sender
+):
+    """
+    @notice Withdraw assets from the pool in a balanced manner
+    @param _lp_amount Amount of LP tokens to burn
+    @param _min_amounts Array of minimum amount of each asset to send
+    @param _receiver Account to receive the assets
+    """
+
     num_assets: uint256 = self.num_assets
     vb_prod: uint256 = self.vb_prod
     vb_sum: uint256 = self.vb_sum
@@ -464,7 +533,21 @@ def remove_liquidity(_lp_amount: uint256, _min_amounts: DynArray[uint256, MAX_NU
 
 @external
 @nonreentrant('lock')
-def remove_liquidity_single(_asset: uint256, _lp_amount: uint256, _min_amount: uint256, _receiver: address = msg.sender) -> uint256:
+def remove_liquidity_single(
+    _asset: uint256, 
+    _lp_amount: uint256, 
+    _min_amount: uint256, 
+    _receiver: address = msg.sender
+) -> uint256:
+    """
+    @notice Withdraw a single asset from the pool
+    @param _asset Index of the asset to withdraw
+    @param _lp_amount Amount of LP tokens to burn
+    @param _min_amount Minimum amount of asset to send
+    @param _receiver Account to receive the asset
+    @return The amount of asset sent
+    """
+    
     assert _asset < MAX_NUM_ASSETS # dev: index out of bounds
 
     # update rate
@@ -526,14 +609,30 @@ def remove_liquidity_single(_asset: uint256, _lp_amount: uint256, _min_amount: u
     return dx
 
 @external
-def update_rates(_assets: uint256):
-    assets: uint256 = _assets
-    if _assets == 0:
+def update_rates(_assets: DynArray[uint256, MAX_NUM_ASSETS]):
+    """
+    @notice Update the stored rate of any of the pool's assets
+    @param _assets Array of indices of assets to update
+    @dev If no assets are passed in, every asset will be updated
+    """
+    num_assets: uint256 = self.num_assets
+    assets: uint256 = 0
+    for i in range(MAX_NUM_ASSETS):
+        if i == len(_assets):
+            break
+        assert _assets[i] < num_assets # dev: index out of bounds
+
+    if len(_assets) == 0:
         assets = ALL_ASSETS_FLAG
     self.vb_prod, self.vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum)
 
 @external
 def update_weights() -> bool:
+    """
+    @notice Calculate new weights
+    @return Boolean to indicate whether the
+    @dev Will only update the weights if a ramp is active and at least the minimum time step has been reached
+    """
     updated: bool = False
     vb_prod: uint256 = 0
     vb_sum: uint256 = self.vb_sum
@@ -547,6 +646,12 @@ def update_weights() -> bool:
 @external
 @view
 def weight(_asset: uint256) -> (uint256, uint256, uint256):
+    """
+    @notice Get the weight of an asset
+    @param _asset Index of the asset
+    @return Tuple with weight, lower band width and upper weight band width
+    @dev Does not take into account any active ramp
+    """
     num_assets: uint256 = self.num_assets
     weight: uint256 = 0
     lower: uint256 = 0
@@ -557,10 +662,19 @@ def weight(_asset: uint256) -> (uint256, uint256, uint256):
 @external
 @view
 def weight_packed(_asset: uint256) -> uint256:
+    """
+    @notice Get the weight of an asset in a packed format
+    @param _asset Index of the asset
+    @return Weight in packed format
+    @dev Does not take into account any active ramp
+    """
     return self.weights[_asset]
 
 @external
 def pause():
+    """
+    @notice Pause the pool
+    """
     assert msg.sender == self.management or msg.sender == self.guardian
     assert not self.paused
     self.paused = True
@@ -568,6 +682,9 @@ def pause():
 
 @external
 def unpause():
+    """
+    @notice Unpause the pool
+    """
     assert msg.sender == self.management or msg.sender == self.guardian
     assert self.paused and not self.killed
     self.paused = False
@@ -575,6 +692,9 @@ def unpause():
 
 @external
 def kill():
+    """
+    @notice Kill the pool
+    """
     assert msg.sender == self.management
     assert self.paused and not self.killed
     self.killed = True
@@ -590,6 +710,18 @@ def add_asset(
     _amount: uint256, 
     _receiver: address = msg.sender
 ):
+    """
+    @notice Add a new asset to the pool
+    @param _asset Address of the asset to add
+    @param _rate_provider Rate provider for asset
+    @param _weight Weight of the new asset
+    @param _lower Lower band width
+    @param _upper Upper band width
+    @param _amount Amount of tokens
+    @param _receiver Account to receive the LP tokens minted
+    @dev Can only be called if no ramp is currently active
+    @dev Every other asset will have their weight reduced pro rata
+    """
     assert msg.sender == self.management
 
     assert _amount > 0
@@ -648,8 +780,12 @@ def add_asset(
 
 @external
 def set_swap_fee_rate(_fee_rate: uint256):
+    """
+    @notice Set the swap fee rate
+    @param _fee_rate New swap fee rate (in 18 decimals)
+    """
     assert msg.sender == self.management
-    assert _fee_rate <= PRECISION / 10
+    assert _fee_rate <= PRECISION
     self.swap_fee_rate = _fee_rate
     log SetSwapFeeRate(_fee_rate)
 
@@ -659,6 +795,13 @@ def set_weight_bands(
     _lower: DynArray[uint256, MAX_NUM_ASSETS], 
     _upper: DynArray[uint256, MAX_NUM_ASSETS]
 ):
+    """
+    @notice Set safety weight bands
+    @notice If any user operation puts the weight outside of the bands, the transaction will revert
+    @param _asset Array of indices of the assets to set the bands for
+    @param _lower Array of widths of the lower band
+    @param _upper Array of widths of the upper band
+    """
     assert msg.sender == self.management
     assert len(_lower) == len(_assets) and len(_upper) == len(_assets)
 
@@ -675,6 +818,11 @@ def set_weight_bands(
 
 @external
 def set_rate_provider(_asset: uint256, _rate_provider: address):
+    """
+    @notice Set a rate provider for an asset
+    @param _asset Index of the assets
+    @param _rate_provider New rate provider for the asset
+    """
     assert msg.sender == self.management
     assert _asset < self.num_assets # dev: index out of bounds
 
@@ -689,6 +837,13 @@ def set_ramp(
     _duration: uint256, 
     _start: uint256 = block.timestamp
 ):
+    """
+    @notice Schedule an amplification and/or weight change
+    @param _amplification New amplification factor (in 18 decimals)
+    @param _weights Array of new weight for each asset (in 18 decimals)
+    @param _duration Duration of the ramp (in seconds)
+    @param _start Ramp start time
+    """
     assert msg.sender == self.management
 
     num_assets: uint256 = self.num_assets
@@ -722,6 +877,10 @@ def set_ramp(
 
 @external
 def set_ramp_step(_ramp_step: uint256):
+    """
+    @notice Set minimum time between ramp step
+    @param _ramp_step Minimum step time (in seconds)
+    """
     assert msg.sender == self.management
     assert _ramp_step > 0
     self.ramp_step = _ramp_step
@@ -729,6 +888,9 @@ def set_ramp_step(_ramp_step: uint256):
 
 @external
 def stop_ramp():
+    """
+    @notice Stop an active ramp
+    """
     assert msg.sender == self.management
     self.ramp_last_time = 0
     self.ramp_stop_time = 0
@@ -736,18 +898,30 @@ def stop_ramp():
 
 @external
 def set_staking(_staking: address):
+    """
+    @notice Set the address that receives yield, slashings and swap fees
+    @param _staking New staking address
+    """
     assert msg.sender == self.management
     self.staking = _staking
     log SetStaking(_staking)
 
 @external
 def set_management(_management: address):
+    """
+    @notice Set the management address
+    @param _management New management address
+    """
     assert msg.sender == self.management
     self.management = _management
     log SetManagement(_management)
 
 @external
 def set_guardian(_guardian: address):
+    """
+    @notice Set the guardian address
+    @param _guardian New guardian address
+    """
     assert msg.sender == self.management or msg.sender == self.guardian
     self.guardian = _guardian
     log SetGuardian(msg.sender, _guardian)

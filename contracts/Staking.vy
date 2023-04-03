@@ -1,4 +1,9 @@
 # @version 0.3.7
+"""
+@title yETH staking contract
+@author 0xkorin, Yearn Finance
+@license Copyright (c) Yearn Finance, 2023 - all rights reserved
+"""
 
 from vyper.interfaces import ERC20
 from vyper.interfaces import ERC4626
@@ -18,9 +23,9 @@ streaming: uint256
 unlocked: uint256
 
 # fees
-fee_rate: public(uint256)
+performance_fee_rate: public(uint256)
 treasury: public(address)
-unclaimed: uint256
+unclaimed_fees: uint256
 
 # voting
 half_time: public(uint256)
@@ -83,6 +88,10 @@ event Withdraw:
 
 @external
 def __init__(_asset: address):
+    """
+    @notice Constructor
+    @param _asset The underlying asset
+    """
     asset = _asset
     self.updated = block.timestamp
     self.half_time = WEEK_LENGTH
@@ -92,6 +101,12 @@ def __init__(_asset: address):
 # ERC20 functions
 @external
 def transfer(_to: address, _value: uint256) -> bool:
+    """
+    @notice Transfer to another account
+    @param _to Account to transfer to
+    @param _value Amount to transfer
+    @return Flag indicating whether the transfer was successful
+    """
     assert _to != empty(address)
     assert _value > 0
     self._update_shares(msg.sender, _value, False)
@@ -101,6 +116,13 @@ def transfer(_to: address, _value: uint256) -> bool:
 
 @external
 def transferFrom(_from: address, _to: address, _value: uint256) -> bool:
+    """
+    @notice Transfer from one account to another account
+    @param _from Account to transfe from
+    @param _to Account to transfer to
+    @param _value Amount to transfer
+    @return Flag indicating whether the transfer was successful
+    """
     assert _to != empty(address)
     assert _value > 0
     self.allowance[_from][msg.sender] -= _value
@@ -111,6 +133,12 @@ def transferFrom(_from: address, _to: address, _value: uint256) -> bool:
 
 @external
 def approve(_spender: address, _value: uint256) -> bool:
+    """
+    @notice Approve another account to spend
+    @param _spender Account that is allowed to spend
+    @param _value Amount that the spender is allowed to transfer
+    @return Flag indicating whether the approval was successful
+    """
     self.allowance[msg.sender][_spender] = _value
     log Approval(msg.sender, _spender, _value)
     return True
@@ -119,11 +147,20 @@ def approve(_spender: address, _value: uint256) -> bool:
 @external
 @view
 def totalAssets() -> uint256:
+    """
+    @notice Get the total assets in the contract
+    @return Total assets in the contract
+    """
     return self._get_unlocked()
 
 @external
 @view
 def convertToShares(_assets: uint256) -> uint256:
+    """
+    @notice Convert amount of assets to amount of shares
+    @param _assets Amount of assets
+    @return Amount of shares
+    """
     shares: uint256 = self.totalSupply
     assets: uint256 = self._get_unlocked()
     if shares == 0 or assets == 0:
@@ -133,6 +170,11 @@ def convertToShares(_assets: uint256) -> uint256:
 @external
 @view
 def convertToAssets(_shares: uint256) -> uint256:
+    """
+    @notice Convert amount of shares to amount of assets
+    @param _assets Amount of shares
+    @return Amount of assets
+    """
     shares: uint256 = self.totalSupply
     assets: uint256 = self._get_unlocked()
     if shares == 0 or assets == 0:
@@ -142,15 +184,31 @@ def convertToAssets(_shares: uint256) -> uint256:
 @external
 @view
 def maxDeposit(_receiver: address) -> uint256:
+    """
+    @notice Get the maximum amount of assets an account is allowed to deposit
+    @param _receiver Account
+    @return Maximum amount the account is allowed to deposit
+    """
     return max_value(uint256)
 
 @external
 @view
 def previewDeposit(_assets: uint256) -> uint256:
+    """
+    @notice Simulate the effect of a deposit
+    @param _assets Amount of assets to deposit
+    @return Amount of shares that will be minted
+    """
     return self._preview_deposit(_assets, self._get_unlocked())
 
 @external
 def deposit(_assets: uint256, _receiver: address = msg.sender) -> uint256:
+    """
+    @notice Deposit assets
+    @param _assets Amount of assets to deposit
+    @param _receiver Account that will receive the shares
+    @return Amount of shares minted
+    """
     assert _assets > 0
     shares: uint256 = self._preview_deposit(_assets, self._update_unlocked())
     assert shares > 0
@@ -160,15 +218,31 @@ def deposit(_assets: uint256, _receiver: address = msg.sender) -> uint256:
 @external
 @view
 def maxMint(_receiver: address) -> uint256:
+    """
+    @notice Get the maximum amount of shares an account is allowed to mint
+    @param _receiver Account
+    @return Maximum amount the account is allowed to mint
+    """
     return max_value(uint256)
 
 @external
 @view
 def previewMint(_shares: uint256) -> uint256:
+    """
+    @notice Simulate the effect of a mint
+    @param _shares Amount of shares to mint
+    @return Amount of assets that will be taken
+    """
     return self._preview_mint(_shares, self._get_unlocked())
 
 @external
 def mint(_shares: uint256, _receiver: address = msg.sender) -> uint256:
+    """
+    @notice Mint shares
+    @param _shares Amount of shares to mint
+    @param _receiver Account that will receive the shares
+    @return Amount of assets taken
+    """
     assert _shares > 0
     assets: uint256 = self._preview_mint(_shares, self._update_unlocked())
     assert assets > 0
@@ -178,15 +252,32 @@ def mint(_shares: uint256, _receiver: address = msg.sender) -> uint256:
 @external
 @view
 def maxWithdraw(_owner: address) -> uint256:
+    """
+    @notice Get the maximum amount of assets an account is allowed to withdraw
+    @param _owner Account
+    @return Maximum amount the account is allowed to withdraw
+    """
     return max_value(uint256)
 
 @external
 @view
 def previewWithdraw(_assets: uint256) -> uint256:
+    """
+    @notice Simulate the effect of a withdrawal
+    @param _shares Amount of assets to withdraw
+    @return Amount of shares that will be redeemed
+    """
     return self._preview_withdraw(_assets, self._get_unlocked())
 
 @external
 def withdraw(_assets: uint256, _receiver: address = msg.sender, _owner: address = msg.sender) -> uint256:
+    """
+    @notice Withdraw assets
+    @param _assets Amount of assets to withdraw
+    @param _receiver Account that will receive the assets
+    @param _owner Owner of the shares that will be redeemed
+    @return Amount of shares redeemed
+    """
     assert _assets > 0
     shares: uint256 = self._preview_withdraw(_assets, self._update_unlocked())
     assert shares > 0
@@ -196,15 +287,32 @@ def withdraw(_assets: uint256, _receiver: address = msg.sender, _owner: address 
 @external
 @view
 def maxRedeem(_owner: address) -> uint256:
+    """
+    @notice Get the maximum amount of shares an account is allowed to redeem
+    @param _owner Account
+    @return Maximum amount the account is allowed to redeem
+    """
     return max_value(uint256)
 
 @external
 @view
 def previewRedeem(_shares: uint256) -> uint256:
+    """
+    @notice Simulate the effect of a redemption
+    @param _shares Amount of shares to redeem
+    @return Amount of assets that will be withdrawn
+    """
     return self._preview_redeem(_shares, self._get_unlocked())
 
 @external
 def redeem(_shares: uint256, _receiver: address = msg.sender, _owner: address = msg.sender) -> uint256:
+    """
+    @notice Redeem shares
+    @param _assets Amount of shares to redeem
+    @param _receiver Account that will receive the assets
+    @param _owner Owner of the shares that will be redeemed
+    @return Amount of assets withdrawn
+    """
     assert _shares > 0
     assets: uint256 = self._preview_redeem(_shares, self._update_unlocked())
     assert assets > 0
@@ -214,20 +322,33 @@ def redeem(_shares: uint256, _receiver: address = msg.sender, _owner: address = 
 # external functions
 @external
 def update_amounts() -> (uint256, uint256, uint256, uint256):
+    """
+    @notice Update the amount in each bucket
+    @return Tuple with pending, streaming, unlocked and unclaimed fee amounts
+    """
     self._update_unlocked()
-    return self.pending, self.streaming, self.unlocked, self.unclaimed
+    return self.pending, self.streaming, self.unlocked, self.unclaimed_fees
 
 @external
 @view
 def get_amounts() -> (uint256, uint256, uint256, uint256, int256):
+    """
+    @notice Simulate an update to the buckets
+    @return Tuple with pending, streaming, unlocked, unclaimed fee amount and balance changes since last update
+    """
     return self._get_amounts(ERC20(asset).balanceOf(self))
 
 @external
-def claim_fees():
+def claim_fees() -> uint256:
+    """
+    @notice Mint shares for the unclaimed fees
+    @dev Can be called by anyone
+    @return Amount of shares minted
+    """
     unlocked: uint256 = self._update_unlocked()
-    assets: uint256 = self.unclaimed
+    assets: uint256 = self.unclaimed_fees
     shares: uint256 = self._preview_deposit(assets, unlocked)
-    self.unclaimed = 0
+    self.unclaimed_fees = 0
     self.unlocked = unlocked + assets
     self.known += assets
     self.totalSupply += shares
@@ -235,10 +356,17 @@ def claim_fees():
     treasury: address = self.treasury
     self.balanceOf[treasury] += shares
     log Deposit(self, treasury, assets, shares)
+    return shares
 
 @external
 @view
 def vote_weight(_account: address) -> uint256:
+    """
+    @notice Get the voting weight of an account
+    @dev Vote weights are always evaluated at the end of last week
+    @param _account Account to find get the vote weight for
+    @return Vote weight
+    """
     week: uint16 = convert(block.timestamp / WEEK_LENGTH, uint16) - 1
     weight: Weight = self.weights[_account]
     if weight.week > week or weight.week == 0:
@@ -251,19 +379,31 @@ def vote_weight(_account: address) -> uint256:
     return convert(weight.shares, uint256) * t / (t + self.half_time)
 
 @external
-def set_fee_rate(_fee_rate: uint256):
+def set_performance_fee_rate(_fee_rate: uint256):
+    """
+    @notice Set the performance fee rate
+    @param _fee_rate Performance fee rate (in 18 decimals)
+    """
     assert msg.sender == self.treasury
-    self.fee_rate = _fee_rate
+    self.performance_fee_rate = _fee_rate
     log SetFeeRate(_fee_rate)
 
 @external
 def set_half_time(_half_time: uint256):
+    """
+    @notice Set the time to reach half the voting weights
+    @param _half_time Time to reach half voting weight (in seconds)
+    """
     assert msg.sender == self.treasury
     assert _half_time > 0
     self.half_time = _half_time
 
 @external
 def set_treasury(_treasury: address):
+    """
+    @notice Set the performance fee beneficiary
+    @param _treasury The new treasury address
+    """
     assert msg.sender == self.treasury
     self.treasury = _treasury
 
@@ -355,7 +495,7 @@ def _update_unlocked() -> uint256:
     self.pending = pending
     self.streaming = streaming
     self.unlocked = unlocked
-    self.unclaimed = unclaimed
+    self.unclaimed_fees = unclaimed
     return unlocked
 
 @internal
@@ -363,9 +503,9 @@ def _update_unlocked() -> uint256:
 def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int256):
     updated: uint256 = self.updated
     if updated == block.timestamp:
-        return self.pending, self.streaming, self.unlocked, self.unclaimed, 0
+        return self.pending, self.streaming, self.unlocked, self.unclaimed_fees, 0
 
-    unclaimed: uint256 = self.unclaimed
+    unclaimed: uint256 = self.unclaimed_fees
     current: uint256 = _current - unclaimed
     last: uint256 = self.known
     pending: uint256 = self.pending
@@ -387,7 +527,7 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int2
             if current > last:
                 # net rewards generated, distribute over buckets
                 rewards: uint256 = current - last
-                fee: uint256 = rewards * self.fee_rate / FEE_PRECISION
+                fee: uint256 = rewards * self.performance_fee_rate / FEE_PRECISION
                 rewards -= fee
                 unclaimed += fee
 
@@ -426,7 +566,7 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int2
     if current >= last:
         # rewards
         rewards: uint256 = current - last
-        fee: uint256 = rewards * self.fee_rate / FEE_PRECISION
+        fee: uint256 = rewards * self.performance_fee_rate / FEE_PRECISION
         rewards -= fee
         unclaimed += fee
         if weeks == 1 and block.timestamp % WEEK_LENGTH <= DAY_LENGTH:
