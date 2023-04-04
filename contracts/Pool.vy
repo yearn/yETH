@@ -797,8 +797,8 @@ def set_weight_bands(
 ):
     """
     @notice Set safety weight bands
-    @notice If any user operation puts the weight outside of the bands, the transaction will revert
-    @param _asset Array of indices of the assets to set the bands for
+            If any user operation puts the weight outside of the bands, the transaction will revert
+    @param _assets Array of indices of the assets to set the bands for
     @param _lower Array of widths of the lower band
     @param _upper Array of widths of the upper band
     """

@@ -172,7 +172,7 @@ def convertToShares(_assets: uint256) -> uint256:
 def convertToAssets(_shares: uint256) -> uint256:
     """
     @notice Convert amount of shares to amount of assets
-    @param _assets Amount of shares
+    @param _shares Amount of shares
     @return Amount of assets
     """
     shares: uint256 = self.totalSupply
@@ -264,7 +264,7 @@ def maxWithdraw(_owner: address) -> uint256:
 def previewWithdraw(_assets: uint256) -> uint256:
     """
     @notice Simulate the effect of a withdrawal
-    @param _shares Amount of assets to withdraw
+    @param _assets Amount of assets to withdraw
     @return Amount of shares that will be redeemed
     """
     return self._preview_withdraw(_assets, self._get_unlocked())
@@ -308,7 +308,7 @@ def previewRedeem(_shares: uint256) -> uint256:
 def redeem(_shares: uint256, _receiver: address = msg.sender, _owner: address = msg.sender) -> uint256:
     """
     @notice Redeem shares
-    @param _assets Amount of shares to redeem
+    @param _shares Amount of shares to redeem
     @param _receiver Account that will receive the assets
     @param _owner Owner of the shares that will be redeemed
     @return Amount of assets withdrawn
