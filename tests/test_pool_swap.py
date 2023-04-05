@@ -60,8 +60,8 @@ def test_round_trip(alice, bob, weights, pool):
 
     vb_prod2 = pool.vb_prod()
     vb_sum2 = pool.vb_sum()
-    assert abs(vb_prod2 - vb_prod) / vb_prod < 2e-16
-    assert abs(vb_sum2 - vb_sum) / vb_sum < 1e-16
+    assert abs(vb_prod2 - vb_prod) / vb_prod < 3e-16
+    assert abs(vb_sum2 - vb_sum) / vb_sum < 2e-16
 
 def test_penalty(chain, alice, bob, weights, pool, estimator):
     assets, provider, pool = pool

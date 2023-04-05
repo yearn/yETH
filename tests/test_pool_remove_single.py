@@ -125,7 +125,6 @@ def test_fee(chain, deployer, alice, bob, weights, pool, estimator):
 
     # doing a single sided withdrawal charges fee/2
     assert bal < base
-    print(abs(bal - base) * PRECISION // base)
     actual_rate = abs(bal - base) * PRECISION // base * 2
     assert abs(actual_rate - fee_rate) / fee_rate < 1e-16
 

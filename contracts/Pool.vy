@@ -621,6 +621,7 @@ def update_rates(_assets: DynArray[uint256, MAX_NUM_ASSETS]):
         if i == len(_assets):
             break
         assert _assets[i] < num_assets # dev: index out of bounds
+        assets = assets | shift(_assets[i] + 1, unsafe_mul(8, convert(i, int128)))
 
     if len(_assets) == 0:
         assets = ALL_ASSETS_FLAG
@@ -1176,10 +1177,12 @@ def _calc_vb(
     for _ in range(255):
         yp: uint256 = (y + b + d * f / PRECISION + c * f / self._pow_up(y, v) - b * f / PRECISION - d) * y / (f * y / PRECISION + y + b - d)
         if yp >= y:
-            if yp - y <= 1:
+            if (yp - y) * PRECISION / y <= MAX_POW_REL_ERR:
+                yp += yp * MAX_POW_REL_ERR / PRECISION
                 return yp
         else:
-            if y - yp <= 1:
+            if (y - yp) * PRECISION / y <= MAX_POW_REL_ERR:
+                yp += yp * MAX_POW_REL_ERR / PRECISION
                 return yp
         y = yp
     

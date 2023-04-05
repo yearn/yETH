@@ -491,10 +491,12 @@ def _calc_vb(_weight: uint256, _y: uint256, _supply: uint256, _amplification: ui
     for _ in range(255):
         yp: uint256 = (y + b + d * f / PRECISION + c * f / self._pow_up(y, v) - b * f / PRECISION - d) * y / (f * y / PRECISION + y + b - d)
         if yp >= y:
-            if yp - y <= 1:
+            if (yp - y) * PRECISION / y <= MAX_POW_REL_ERR:
+                yp += yp * MAX_POW_REL_ERR / PRECISION
                 return yp
         else:
-            if y - yp <= 1:
+            if (y - yp) * PRECISION / y <= MAX_POW_REL_ERR:
+                yp += yp * MAX_POW_REL_ERR / PRECISION
                 return yp
         y = yp
     
