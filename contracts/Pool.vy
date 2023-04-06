@@ -38,7 +38,7 @@ ramp_stop_time: public(uint256)
 target_amplification: public(uint256)
 target_weights: public(uint256[MAX_NUM_ASSETS])
 
-w_prod: public(uint256) # weight product: product(w_i^(w_i n)) = w^n
+w_prod: public(uint256) # weight product: 1/product(w_i^(w_i n)) = 1/w^n
 vb_prod: public(uint256) # virtual balance product: D^n / product((b_i r_i / w_i)^(w_i n))
 vb_sum: public(uint256) # virtual balance sum: sum(b_i r_i)
 
@@ -1072,7 +1072,7 @@ def _calc_w_prod() -> uint256:
         if asset == num_assets:
             break
         weight: uint256 = self.weights[asset] & WEIGHT_MASK
-        prod = unsafe_div(unsafe_mul(prod, self._pow_up(unsafe_div(weight, num_assets), weight)), PRECISION)
+        prod = prod * PRECISION / self._pow_up(unsafe_div(weight, num_assets), weight)
     return prod
 
 @internal
@@ -1116,7 +1116,7 @@ def _calc_supply(
     # s[n+1] = (A sum / w^n - s^(n+1) w^n /prod^n)) / (A w^n - 1)
     #        = (l - s r) / d
 
-    l: uint256 = _amplification * PRECISION / _w_prod
+    l: uint256 = _amplification * _w_prod / PRECISION
     d: uint256 = l - PRECISION
     s: uint256 = _supply
     r: uint256 = _vb_prod
@@ -1167,7 +1167,7 @@ def _calc_vb(
     #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / ((f_j + 1) y[n] + b))
 
     d: uint256 = _supply
-    b: uint256 = d * _w_prod / _amplification # actually b + D
+    b: uint256 = d * PRECISION / _amplification * PRECISION / _w_prod # actually b + D
     c: uint256 = _vb_prod * b / PRECISION
     b += _vb_sum
     v: uint256 = _weight & WEIGHT_MASK

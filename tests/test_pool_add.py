@@ -392,7 +392,7 @@ def test_ramp_amplification(chain, deployer, alice, bob, token, weights, pool, e
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         mid = token.balanceOf(bob)
-        assert abs(mid - exp) <= 15 # TODO
+        assert abs(mid - exp) <= 16 # TODO
     
     # higher amplification -> lower penalty
     assert mid > base

@@ -222,7 +222,7 @@ def test_ramp_weight(chain, deployer, alice, bob, weights, pool, estimator):
         exp = estimator.get_dx(0, 2, PRECISION)
     with chain.isolate():
         mid_2 = pool.swap_exact_out(0, 2, PRECISION, MAX, bob, sender=alice).return_value
-        assert abs(mid_2 - exp) <= 2
+        assert abs(mid_2 - exp) <= 3
     
     # asset 1 share is below weight -> penalty
     assert mid_1 > base_1

@@ -406,7 +406,7 @@ def _get_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint
                 current += (target - current) * span / duration
         weights.append(self._pack_weight(current, lower, upper))
         if _vb_sum > 0:
-            w_prod = unsafe_div(unsafe_mul(w_prod, self._pow_up(unsafe_div(current, num_assets), current)), PRECISION)
+            w_prod = w_prod * PRECISION / self._pow_up(unsafe_div(current, num_assets), current)
             vb_prod = unsafe_div(unsafe_mul(vb_prod, supply), self._pow_down(unsafe_div(unsafe_mul(pool.balances(asset), PRECISION), unsafe_div(current, num_assets)), current))
 
     return amplification, w_prod, vb_prod, weights, True
@@ -438,7 +438,7 @@ def _calc_supply(_num_assets: uint256, _supply: uint256, _amplification: uint256
     # s[n+1] = (A sum / w^n - s^(n+1) w^n /prod^n)) / (A w^n - 1)
     #        = (l - s r) / d
 
-    l: uint256 = _amplification * PRECISION / _w_prod
+    l: uint256 = _amplification * _w_prod / PRECISION
     d: uint256 = l - PRECISION
     s: uint256 = _supply
     r: uint256 = _vb_prod
@@ -481,7 +481,7 @@ def _calc_vb(_weight: uint256, _y: uint256, _supply: uint256, _amplification: ui
     #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / (f_j + 1) y[n] + b)
 
     d: uint256 = _supply
-    b: uint256 = d * _w_prod / _amplification # actually b + D
+    b: uint256 = d * PRECISION / _amplification * PRECISION / _w_prod # actually b + D
     c: uint256 = _vb_prod * b / PRECISION
     b += _vb_sum
     v: uint256 = _weight & WEIGHT_MASK
