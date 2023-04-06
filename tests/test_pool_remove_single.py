@@ -234,7 +234,7 @@ def test_ramp_weight(chain, deployer, alice, bob, weights, pool, estimator):
     with chain.isolate():
         pool.remove_liquidity_single(1, PRECISION, 0, bob, sender=deployer)
         end_1 = assets[1].balanceOf(bob)
-        assert abs(end_1 - exp) <= 1
+        assert abs(end_1 - exp) <= 2
     with chain.isolate():
         chain.mine()
         exp = estimator.get_remove_single_lp(2, PRECISION)

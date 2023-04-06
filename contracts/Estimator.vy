@@ -407,7 +407,7 @@ def _get_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint
         weights.append(self._pack_weight(current, lower, upper))
         if _vb_sum > 0:
             w_prod = w_prod * PRECISION / self._pow_up(unsafe_div(current, num_assets), current)
-            vb_prod = unsafe_div(unsafe_mul(vb_prod, supply), self._pow_down(unsafe_div(unsafe_mul(pool.balances(asset), PRECISION), unsafe_div(current, num_assets)), current))
+            vb_prod = unsafe_div(unsafe_mul(vb_prod, self._pow_down(unsafe_div(unsafe_mul(supply, unsafe_div(current, num_assets)), pool.balances(asset)), current)), PRECISION)
 
     return amplification, w_prod, vb_prod, weights, True
 

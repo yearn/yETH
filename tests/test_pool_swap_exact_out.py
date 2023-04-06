@@ -216,7 +216,7 @@ def test_ramp_weight(chain, deployer, alice, bob, weights, pool, estimator):
         exp = estimator.get_dx(0, 1, PRECISION)
     with chain.isolate():
         mid_1 = pool.swap_exact_out(0, 1, PRECISION, MAX, bob, sender=alice).return_value
-        assert abs(mid_1 - exp) <= 4
+        assert abs(mid_1 - exp) <= 5
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dx(0, 2, PRECISION)

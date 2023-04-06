@@ -1098,8 +1098,12 @@ def _calc_vb_prod(_s: uint256) -> uint256:
         weight: uint256 = self.weights[asset] & WEIGHT_MASK
         vb: uint256 = self.balances[asset]
         assert weight > 0 and vb > 0 # dev: borked
-        # p = product(D / (vb_i / w_i)^(w_i n))
-        p = unsafe_div(unsafe_mul(p, _s), self._pow_down(unsafe_div(unsafe_mul(vb, PRECISION), unsafe_div(weight, num_assets)), weight))
+        # p = product((D * w_i / vb_i)^(w_i n))
+        p = unsafe_div(
+            unsafe_mul(
+                p, self._pow_down(unsafe_div(unsafe_mul(_s, unsafe_div(weight, num_assets)), vb), weight)
+            ), PRECISION
+        )
     return p
 
 @internal
