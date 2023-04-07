@@ -3,9 +3,6 @@ import pytest
 
 PRECISION = 1_000_000_000_000_000_000
 MAX = 2**256 - 1
-W_PROD_SLOT = 206
-VB_PROD_SLOT = W_PROD_SLOT + 1
-VB_SUM_SLOT = VB_PROD_SLOT + 1
 
 @pytest.fixture
 def deployer(accounts):
@@ -70,8 +67,8 @@ def test_withdraw_single(project, deployer, alice, bob, token):
         asset.mint(alice, amt // n, sender=deployer)
 
     pool.add_liquidity([amt // n for _ in range(n)], 0, sender=alice)
-    vb_prod = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
-    vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    vb_prod = pool.vb_prod()
+    vb_sum = pool.vb_sum()
 
     # add single sided liquidity
     amt = amt // n // 10
@@ -86,8 +83,8 @@ def test_withdraw_single(project, deployer, alice, bob, token):
     # remove single sided liquidity
     expect = estimator.get_remove_single_lp(0, bal)
     pool.remove_liquidity_single(0, bal, 0, sender=bob)
-    vb_prod2 = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
-    vb_sum2 = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    vb_prod2 = pool.vb_prod()
+    vb_sum2 = pool.vb_sum()
 
     bal = assets[0].balanceOf(bob)
     assert bal == expect
@@ -110,8 +107,8 @@ def test_swap(project, deployer, alice, bob, token):
         asset.mint(alice, amt // n, sender=deployer)
     pool.add_liquidity([amt // n for _ in range(n)], 0, sender=alice)
 
-    vb_prod = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
-    vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    vb_prod = pool.vb_prod()
+    vb_sum = pool.vb_sum()
 
     # swap asset 0 for asset 1
     swap = 10 * PRECISION
@@ -134,8 +131,8 @@ def test_swap(project, deployer, alice, bob, token):
     assert bal2 < swap # rounding is in favor of pool
     assert (swap - bal2) / swap < 1e-14
 
-    vb_prod2 = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
-    vb_sum2 = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    vb_prod2 = pool.vb_prod()
+    vb_sum2 = pool.vb_sum()
 
     assert abs((vb_prod2 - vb_prod) / vb_prod) < 1e-13
     assert vb_sum2 > vb_sum
@@ -195,8 +192,8 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
         asset.mint(alice, amt // n, sender=deployer)
     pool.add_liquidity([amt // n for _ in range(n)], 0, sender=alice)
 
-    vb_prod = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
-    vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    vb_prod = pool.vb_prod()
+    vb_sum = pool.vb_sum()
 
     # swap asset 0 for asset 1
     swap = 10 * PRECISION
@@ -224,8 +221,8 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
     assert amt2 > swap # rounding is in favor of pool
     assert (amt2 - swap) / swap < 1e-14
 
-    vb_prod2 = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
-    vb_sum2 = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    vb_prod2 = pool.vb_prod()
+    vb_sum2 = pool.vb_sum()
 
     assert abs((vb_prod2 - vb_prod) / vb_prod) < 2e-14
     assert vb_sum2 > vb_sum
@@ -261,8 +258,8 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     pool.add_liquidity([exp_fee_amt if i == 0 else 0 for i in range(n)], 0, sender=bob)
     exp_staking_bal = token.balanceOf(bob)
 
-    vb_prod = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
-    vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    vb_prod = pool.vb_prod()
+    vb_sum = pool.vb_sum()
 
     # swap with fee
     chain.restore(id)
@@ -283,8 +280,8 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     assert staking_bal < fee_amt
     assert (fee_amt - staking_bal) / fee_amt < 2e-4
 
-    vb_prod2 = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
-    vb_sum2 = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    vb_prod2 = pool.vb_prod()
+    vb_sum2 = pool.vb_sum()
     assert abs(vb_prod2 - vb_prod) / vb_prod < 1e-14
     assert vb_sum == vb_sum2
 
@@ -323,28 +320,6 @@ def test_rate_update(project, deployer, alice, token):
     assert bal < expect
     assert (expect - bal) / expect < 1e-4 # small penalty because pool is still out of balance
 
-def test_storage_slot(project, deployer, alice, token):
-    # quickly find storage slot of certain variables required in other tests
-    amplification = 10 * PRECISION
-    n = 2
-    assets, provider = deploy_assets(project, deployer, n)
-    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
-    token.set_minter(pool, sender=deployer)
-
-    amt = 123 * PRECISION
-    for asset in assets:
-        asset.approve(pool, MAX, sender=alice)
-        asset.mint(alice, amt, sender=deployer)
-    pool.add_liquidity([amt for _ in range(n)], 0, sender=alice)
-
-    slot = -1
-    for i in range(256):
-        val = to_int(project.provider.get_storage_at(pool.address, i))
-        if val == n*amt:
-            assert slot == -1
-            slot = i
-    assert slot - 2 == W_PROD_SLOT
-
 def test_ramp_weight_empty(project, deployer, alice, token):
     # weights can be updated when pool is empty
     amplification = 10 * PRECISION
@@ -363,9 +338,9 @@ def test_ramp_weight_empty(project, deployer, alice, token):
     pool.update_weights(sender=deployer)
     for i in range(n):
         assert pool.weight(i)[0] == weights[i]
-    w_prod = to_int(project.provider.get_storage_at(pool.address, W_PROD_SLOT))
-    vb_prod = to_int(project.provider.get_storage_at(pool.address, VB_PROD_SLOT))
-    vb_sum = to_int(project.provider.get_storage_at(pool.address, VB_SUM_SLOT))
+    w_prod = pool.w_prod()
+    vb_prod = pool.vb_prod()
+    vb_sum = pool.vb_sum()
     assert w_prod == 0
     assert vb_prod == 0
     assert vb_sum == 0

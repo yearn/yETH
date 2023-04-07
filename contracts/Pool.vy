@@ -19,7 +19,7 @@ interface PoolToken:
 
 token: public(immutable(address))
 supply: public(uint256)
-amplification: public(uint256)
+amplification_packed: uint256 # amplification (128) | target amplification (128)
 staking: public(address)
 num_assets: public(uint256)
 assets: public(address[MAX_NUM_ASSETS])
@@ -35,10 +35,9 @@ swap_fee_rate: public(uint256)
 ramp_step: public(uint256)
 ramp_last_time: public(uint256)
 ramp_stop_time: public(uint256)
-target_amplification: public(uint256)
 target_weights: public(uint256[MAX_NUM_ASSETS])
 
-w_prod: public(uint256) # weight product: 1/product(w_i^(w_i n)) = 1/w^n
+w_prod: public(uint256) # weight product: A/product(w_i^(w_i n)) = A/w^n
 vb_prod: public(uint256) # virtual balance product: D^n / product((b_i r_i / w_i)^(w_i n))
 vb_sum: public(uint256) # virtual balance sum: sum(b_i r_i)
 
@@ -123,10 +122,12 @@ event SetGuardian:
 
 PRECISION: constant(uint256) = 1_000_000_000_000_000_000
 MAX_NUM_ASSETS: constant(uint256) = 32
-ALL_ASSETS_FLAG: constant(uint256) = 14528991250861404666834535435384615765856667510756806797353855100662256435713
+ALL_ASSETS_FLAG: constant(uint256) = 14528991250861404666834535435384615765856667510756806797353855100662256435713 # sum((i+1) << 8*i)
 WEIGHT_MASK: constant(uint256) = 2**85 - 1
 LOWER_BAND_SHIFT: constant(int128) = -85
 UPPER_BAND_SHIFT: constant(int128) = -170
+AMPLIFICATION_MASK: constant(uint256) = 2**128 - 1
+AMPLIFICATION_SHIFT: constant(int256) = -128
 
 # powers of 10
 E3: constant(int256)               = 1_000
@@ -193,9 +194,10 @@ def __init__(
     num_assets: uint256 = len(_assets)
     assert num_assets >= 2
     assert len(_rate_providers) == num_assets and len(_weights) == num_assets
+    assert _amplification > 0 and _amplification < AMPLIFICATION_MASK
 
     token = _token
-    self.amplification = _amplification
+    self.amplification_packed = _amplification
     self.num_assets = num_assets
     
     weight_sum: uint256 = 0
@@ -672,6 +674,16 @@ def weight_packed(_asset: uint256) -> uint256:
     return self.weights[_asset]
 
 @external
+@view
+def amplification() -> uint256:
+    return self.amplification_packed & AMPLIFICATION_MASK
+
+@external
+@view
+def target_amplification() -> uint256:
+    return shift(self.amplification_packed, AMPLIFICATION_SHIFT)
+
+@external
 def pause():
     """
     @notice Pause the pool
@@ -848,7 +860,7 @@ def set_ramp(
     assert msg.sender == self.management
 
     num_assets: uint256 = self.num_assets
-    assert _amplification > 0
+    assert _amplification > 0 and _amplification < AMPLIFICATION_MASK
     assert len(_weights) == num_assets
     assert _start >= block.timestamp
 
@@ -865,7 +877,10 @@ def set_ramp(
 
     self.ramp_last_time = _start
     self.ramp_stop_time = _start + _duration
-    self.target_amplification = _amplification
+    
+    current: uint256 = self.amplification_packed & AMPLIFICATION_MASK
+    self.amplification_packed = current | shift(_amplification, -AMPLIFICATION_SHIFT)
+
     total: uint256 = 0
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
@@ -989,15 +1004,17 @@ def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, bool):
     span = block.timestamp - span
     
     # update amplification
-    current: uint256 = self.amplification
-    target: uint256 = self.target_amplification
+    current: uint256 = self.amplification_packed
+    target: uint256 = shift(current, AMPLIFICATION_SHIFT)
+    current = current & AMPLIFICATION_MASK
     if duration == 0:
-        self.amplification = target
+        current = target
     else:
         if current > target:
-            self.amplification = current - (current - target) * span / duration
+            current = current - (current - target) * span / duration
         else:
-            self.amplification = current + (target - current) * span / duration
+            current = current + (target - current) * span / duration
+    self.amplification_packed = current | shift(target, -AMPLIFICATION_SHIFT)
 
     # update weights
     num_assets: uint256 = self.num_assets
@@ -1066,7 +1083,7 @@ def _check_bands(_num_assets: uint256, _prev_ratio: uint256, _ratio: uint256, _w
 @internal
 @view
 def _calc_w_prod() -> uint256:
-    prod: uint256 = self.amplification
+    prod: uint256 = self.amplification_packed & AMPLIFICATION_MASK
     num_assets: uint256 = self.num_assets
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
