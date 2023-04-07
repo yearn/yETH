@@ -259,7 +259,7 @@ def swap(
     vb_sum = vb_sum + dvbx - prev_vby
 
     # calulate new balance of out token
-    vby: uint256 = self._calc_vb(weight_y, prev_vby, self.supply, self.amplification, self.w_prod, vb_prod, vb_sum)
+    vby: uint256 = self._calc_vb(weight_y, prev_vby, self.supply, self.w_prod, vb_prod, vb_sum)
     vb_sum += vby
 
     # check bands
@@ -340,7 +340,7 @@ def swap_exact_out(
     vb_sum = vb_sum - dvby - prev_vbx
 
     # calulate new balance of in token
-    vbx: uint256 = self._calc_vb(weight_x, prev_vbx, self.supply, self.amplification, self.w_prod, vb_prod, vb_sum)
+    vbx: uint256 = self._calc_vb(weight_x, prev_vbx, self.supply, self.w_prod, vb_prod, vb_sum)
     dx: uint256 = (vbx - prev_vbx) * PRECISION / self.rates[_i]
     dx_fee: uint256 = self.swap_fee_rate
     dx_fee = dx * dx_fee / (PRECISION - dx_fee)
@@ -468,7 +468,7 @@ def add_liquidity(
             j = unsafe_add(j, 1)
 
     # mint LP tokens
-    supply, vb_prod = self._calc_supply(num_assets, supply, self.amplification, self.w_prod, vb_prod, vb_sum, prev_supply == 0)
+    supply, vb_prod = self._calc_supply(num_assets, supply, self.w_prod, vb_prod, vb_sum, prev_supply == 0)
     mint: uint256 = supply - prev_supply
     assert mint > 0 and mint >= _min_lp_amount # dev: slippage
     PoolToken(token).mint(_receiver, mint)
@@ -477,7 +477,7 @@ def add_liquidity(
     supply_final: uint256 = supply
     if prev_supply > 0:
         # mint fees
-        supply_final, vb_prod_final = self._calc_supply(num_assets, prev_supply, self.amplification, self.w_prod, vb_prod_final, vb_sum_final, True)
+        supply_final, vb_prod_final = self._calc_supply(num_assets, prev_supply, self.w_prod, vb_prod_final, vb_sum_final, True)
         PoolToken(token).mint(self.staking, supply_final - supply)
     else:
         vb_prod_final = vb_prod
@@ -575,7 +575,7 @@ def remove_liquidity_single(
     vb_sum = vb_sum - prev_vb
 
     # calculate new balance of asset
-    vb: uint256 = self._calc_vb(weight, prev_vb, supply, self.amplification, self.w_prod, vb_prod, vb_sum)
+    vb: uint256 = self._calc_vb(weight, prev_vb, supply, self.w_prod, vb_prod, vb_sum)
     dvb: uint256 = prev_vb - vb
     fee: uint256 = dvb * self.swap_fee_rate / 2 / PRECISION
     dvb -= fee
@@ -769,7 +769,7 @@ def add_asset(
     # update supply
     prev_supply: uint256 = self.supply
     supply: uint256 = 0
-    supply, vb_prod = self._calc_supply(num_assets, vb_sum, self.amplification, w_prod, vb_prod, vb_sum, True)
+    supply, vb_prod = self._calc_supply(num_assets, vb_sum, w_prod, vb_prod, vb_sum, True)
 
     self.supply = supply
     self.w_prod = w_prod
@@ -1031,7 +1031,7 @@ def _update_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (ui
 
     supply: uint256 = 0
     vb_prod: uint256 = 0
-    supply, vb_prod = self._calc_supply(self.num_assets, _supply, self.amplification, self.w_prod, _vb_prod, _vb_sum, True)
+    supply, vb_prod = self._calc_supply(self.num_assets, _supply, self.w_prod, _vb_prod, _vb_sum, True)
     if supply > _supply:
         PoolToken(token).mint(self.staking, supply - _supply)
     elif supply < _supply:
@@ -1066,7 +1066,7 @@ def _check_bands(_num_assets: uint256, _prev_ratio: uint256, _ratio: uint256, _w
 @internal
 @view
 def _calc_w_prod() -> uint256:
-    prod: uint256 = PRECISION
+    prod: uint256 = self.amplification
     num_assets: uint256 = self.num_assets
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
@@ -1111,7 +1111,6 @@ def _calc_vb_prod(_s: uint256) -> uint256:
 def _calc_supply(
     _num_assets: uint256, 
     _supply: uint256, 
-    _amplification: uint256, 
     _w_prod: uint256, 
     _vb_prod: uint256, 
     _vb_sum: uint256, 
@@ -1120,7 +1119,7 @@ def _calc_supply(
     # s[n+1] = (A sum / w^n - s^(n+1) w^n /prod^n)) / (A w^n - 1)
     #        = (l - s r) / d
 
-    l: uint256 = _amplification * _w_prod / PRECISION
+    l: uint256 = _w_prod
     d: uint256 = l - PRECISION
     s: uint256 = _supply
     r: uint256 = _vb_prod
@@ -1157,7 +1156,6 @@ def _calc_vb(
     _weight: uint256, 
     _y: uint256, 
     _supply: uint256, 
-    _amplification: uint256, 
     _w_prod: uint256, 
     _vb_prod: uint256, 
     _vb_sum: uint256
@@ -1171,7 +1169,7 @@ def _calc_vb(
     #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / ((f_j + 1) y[n] + b))
 
     d: uint256 = _supply
-    b: uint256 = d * PRECISION / _amplification * PRECISION / _w_prod # actually b + D
+    b: uint256 = d * PRECISION / _w_prod # actually b + D
     c: uint256 = _vb_prod * b / PRECISION
     b += _vb_sum
     v: uint256 = _weight & WEIGHT_MASK
