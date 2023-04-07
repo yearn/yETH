@@ -70,7 +70,10 @@ _Note:_ this mode is to be activated in the event of a LSD depeg, such as a mint
 - At the end of the week, the pending bucket becomes the streaming bucket and a new pending bucket is created
 - The streaming bucket is unlocked linearly during the week
 - User deposits and withdrawals only affect the unlocked bucket
-- Contract keeps track of the user's time weighted balance, which increases linearly weekly until a cap is reached
+- Each user has an internal vote weight that increases asymptotically to the user's share count. After `t` seconds, their vote weight is `s t / (t + t_half)` where `t_half` is the voting half time
+- The voting half time determines the time it takes until half the voting weight is reached
+- The user's external vote weight is equal to the internal vote weight at the end of the previous week
+- Management can set the voting half time
 - Users can freely transfer their tokens to other users
 - The contract implements ERC20
 - The contract implements ERC4626
