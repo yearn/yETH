@@ -37,7 +37,7 @@ totalSupply: public(uint256)
 balanceOf: public(HashMap[address, uint256])
 allowance: public(HashMap[address, HashMap[address, uint256]])
 
-name: public(constant(String[16])) = "Staked Yearn ETH"
+name: public(constant(String[18])) = "Staked Yearn Ether"
 symbol: public(constant(String[7])) = "st-yETH"
 decimals: public(constant(uint8)) = 18
 

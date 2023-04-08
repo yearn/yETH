@@ -1,4 +1,9 @@
 # @version 0.3.7
+"""
+@title yETH token
+@author 0xkorin, Yearn Finance
+@license Copyright (c) Yearn Finance, 2023 - all rights reserved
+"""
 
 from vyper.interfaces import ERC20
 implements: ERC20
@@ -7,7 +12,7 @@ totalSupply: public(uint256)
 balanceOf: public(HashMap[address, uint256])
 allowance: public(HashMap[address, HashMap[address, uint256]])
 
-name: public(constant(String[9])) = "Yearn ETH"
+name: public(constant(String[11])) = "Yearn Ether"
 symbol: public(constant(String[4])) = "yETH"
 decimals: public(constant(uint8)) = 18
 
