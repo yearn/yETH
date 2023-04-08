@@ -37,8 +37,7 @@ def test_round_trip(alice, bob, token, weights, pool):
         asset.mint(alice, amt, sender=alice)
     pool.add_liquidity(amts, 0, sender=alice)
 
-    vb_prod = pool.vb_prod()
-    vb_sum = pool.vb_sum()
+    vb_prod, vb_sum = pool.vb_prod_sum()
 
     amt = PRECISION
     asset = assets[0]
@@ -57,8 +56,7 @@ def test_round_trip(alice, bob, token, weights, pool):
     assert amt2 < amt
     assert abs(amt2 - amt) / amt < 2e-13
 
-    vb_prod2 = pool.vb_prod()
-    vb_sum2 = pool.vb_sum()
+    vb_prod2, vb_sum2 = pool.vb_prod_sum()
     assert abs(vb_prod2 - vb_prod) / vb_prod < 1e-15
     assert abs(vb_sum2 - vb_sum) / vb_sum < 1e-15
 

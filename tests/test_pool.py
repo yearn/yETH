@@ -67,8 +67,7 @@ def test_withdraw_single(project, deployer, alice, bob, token):
         asset.mint(alice, amt // n, sender=deployer)
 
     pool.add_liquidity([amt // n for _ in range(n)], 0, sender=alice)
-    vb_prod = pool.vb_prod()
-    vb_sum = pool.vb_sum()
+    vb_prod, vb_sum = pool.vb_prod_sum()
 
     # add single sided liquidity
     amt = amt // n // 10
@@ -83,8 +82,7 @@ def test_withdraw_single(project, deployer, alice, bob, token):
     # remove single sided liquidity
     expect = estimator.get_remove_single_lp(0, bal)
     pool.remove_liquidity_single(0, bal, 0, sender=bob)
-    vb_prod2 = pool.vb_prod()
-    vb_sum2 = pool.vb_sum()
+    vb_prod2, vb_sum2 = pool.vb_prod_sum()
 
     bal = assets[0].balanceOf(bob)
     assert bal == expect
@@ -107,8 +105,7 @@ def test_swap(project, deployer, alice, bob, token):
         asset.mint(alice, amt // n, sender=deployer)
     pool.add_liquidity([amt // n for _ in range(n)], 0, sender=alice)
 
-    vb_prod = pool.vb_prod()
-    vb_sum = pool.vb_sum()
+    vb_prod, vb_sum = pool.vb_prod_sum()
 
     # swap asset 0 for asset 1
     swap = 10 * PRECISION
@@ -131,8 +128,7 @@ def test_swap(project, deployer, alice, bob, token):
     assert bal2 < swap # rounding is in favor of pool
     assert (swap - bal2) / swap < 1e-14
 
-    vb_prod2 = pool.vb_prod()
-    vb_sum2 = pool.vb_sum()
+    vb_prod2, vb_sum2 = pool.vb_prod_sum()
 
     assert abs((vb_prod2 - vb_prod) / vb_prod) < 1e-13
     assert vb_sum2 > vb_sum
@@ -192,8 +188,7 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
         asset.mint(alice, amt // n, sender=deployer)
     pool.add_liquidity([amt // n for _ in range(n)], 0, sender=alice)
 
-    vb_prod = pool.vb_prod()
-    vb_sum = pool.vb_sum()
+    vb_prod, vb_sum = pool.vb_prod_sum()
 
     # swap asset 0 for asset 1
     swap = 10 * PRECISION
@@ -221,8 +216,7 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
     assert amt2 > swap # rounding is in favor of pool
     assert (amt2 - swap) / swap < 1e-14
 
-    vb_prod2 = pool.vb_prod()
-    vb_sum2 = pool.vb_sum()
+    vb_prod2, vb_sum2 = pool.vb_prod_sum()
 
     assert abs((vb_prod2 - vb_prod) / vb_prod) < 2e-14
     assert vb_sum2 > vb_sum
@@ -258,8 +252,7 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     pool.add_liquidity([exp_fee_amt if i == 0 else 0 for i in range(n)], 0, sender=bob)
     exp_staking_bal = token.balanceOf(bob)
 
-    vb_prod = pool.vb_prod()
-    vb_sum = pool.vb_sum()
+    vb_prod, vb_sum = pool.vb_prod_sum()
 
     # swap with fee
     chain.restore(id)
@@ -280,8 +273,7 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     assert staking_bal < fee_amt
     assert (fee_amt - staking_bal) / fee_amt < 2e-4
 
-    vb_prod2 = pool.vb_prod()
-    vb_sum2 = pool.vb_sum()
+    vb_prod2, vb_sum2 = pool.vb_prod_sum()
     assert abs(vb_prod2 - vb_prod) / vb_prod < 1e-14
     assert vb_sum == vb_sum2
 
@@ -337,7 +329,6 @@ def test_ramp_weight_empty(project, deployer, alice, token):
     pool.update_weights(sender=deployer)
     for i in range(n):
         assert pool.weight(i)[0] == weights[i]
-    vb_prod = pool.vb_prod()
-    vb_sum = pool.vb_sum()
+    vb_prod, vb_sum = pool.vb_prod_sum()
     assert vb_prod == 0
     assert vb_sum == 0

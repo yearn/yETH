@@ -47,7 +47,7 @@ def test_initial(alice, bob, token, weights, pool):
     assert abs(total - bal) / total < 2e-16 # precision
     assert token.totalSupply() == bal
     assert pool.supply() == bal
-    assert abs(pool.vb_sum() - total) <= 4 # rounding
+    assert abs(pool.vb_prod_sum()[1] - total) <= 4 # rounding
 
 def test_multiple(alice, bob, token, weights, pool, estimator):
     assets, provider, pool = pool
@@ -79,7 +79,7 @@ def test_multiple(alice, bob, token, weights, pool, estimator):
     assert bal < total2
     # even with 10M ETH in the pool we can reach decent precision on small amounts
     assert abs(bal - total2) / total2 < 2e-5
-    assert abs(pool.vb_sum() - total1 - total2) <= 4
+    assert abs(pool.vb_prod_sum()[1] - total1 - total2) <= 4
 
 def test_single_sided(chain, alice, bob, token, weights, pool, estimator):
     assets, provider, pool = pool

@@ -24,7 +24,7 @@ staking: public(address)
 num_assets: public(uint256)
 assets: public(address[MAX_NUM_ASSETS])
 rate_providers: public(address[MAX_NUM_ASSETS])
-balances: public(uint256[MAX_NUM_ASSETS]) # x_i r_i
+balances: public(uint256[MAX_NUM_ASSETS]) # x_i = b_i r_i
 rates: public(uint256[MAX_NUM_ASSETS]) # r_i
 weights: uint256[MAX_NUM_ASSETS] # (w_i * n, lower * n, upper * n)
 management: public(address)
@@ -38,8 +38,9 @@ ramp_stop_time: public(uint256)
 target_amplification: public(uint256)
 target_weights: public(uint256[MAX_NUM_ASSETS])
 
-vb_prod: public(uint256) # virtual balance product: D^n / product((b_i r_i / w_i)^(w_i n))
-vb_sum: public(uint256) # virtual balance sum: sum(b_i r_i)
+vb_packed: uint256 # vb_prod (128) | vb_sum (128)
+# vb_prod: product((w_i * D / x_i)^(w_i n))
+# vb_sum: sum(x_i)
 
 event Swap:
     account: indexed(address)
@@ -126,6 +127,8 @@ ALL_ASSETS_FLAG: constant(uint256) = 1452899125086140466683453543538461576585666
 WEIGHT_MASK: constant(uint256) = 2**85 - 1
 LOWER_BAND_SHIFT: constant(int128) = -85
 UPPER_BAND_SHIFT: constant(int128) = -170
+VB_MASK: constant(uint256) = 2**128 - 1
+VB_SHIFT: constant(int128) = -128
 
 # powers of 10
 E3: constant(int256)               = 1_000
@@ -242,7 +245,8 @@ def swap(
     assets: DynArray[uint256, MAX_NUM_ASSETS] = [_i, _j]
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
-    vb_prod, vb_sum = self._update_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), self.vb_prod, self.vb_sum)
+    vb_prod, vb_sum = self._unpack_vb(self.vb_packed)
+    vb_prod, vb_sum = self._update_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), vb_prod, vb_sum)
     prev_vb_sum: uint256 = vb_sum
 
     prev_vbx: uint256 = self.balances[_i]
@@ -287,8 +291,7 @@ def swap(
         supply: uint256 = 0
         supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
 
-    self.vb_prod = vb_prod
-    self.vb_sum = vb_sum
+    self.vb_packed = self._pack_vb(vb_prod, vb_sum)
 
     # transfer tokens
     assert ERC20(self.assets[_i]).transferFrom(msg.sender, self, _dx, default_return_value=True)
@@ -324,7 +327,8 @@ def swap_exact_out(
     # reverts if either is not part of the pool
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
-    vb_prod, vb_sum = self._update_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), self.vb_prod, self.vb_sum)
+    vb_prod, vb_sum = self._unpack_vb(self.vb_packed)
+    vb_prod, vb_sum = self._update_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), vb_prod, vb_sum)
     prev_vb_sum: uint256 = vb_sum
 
     prev_vbx: uint256 = self.balances[_i]
@@ -364,8 +368,7 @@ def swap_exact_out(
         supply: uint256 = 0
         supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
 
-    self.vb_prod = vb_prod
-    self.vb_sum = vb_sum
+    self.vb_packed = self._pack_vb(vb_prod, vb_sum)
 
     assert ERC20(self.assets[_i]).transferFrom(msg.sender, self, dx, default_return_value=True)
     assert ERC20(self.assets[_j]).transfer(_receiver, _dy, default_return_value=True)
@@ -391,8 +394,9 @@ def add_liquidity(
     num_assets: uint256 = self.num_assets
     assert len(_amounts) == num_assets
 
-    vb_prod: uint256 = self.vb_prod
-    vb_sum: uint256 = self.vb_sum
+    vb_prod: uint256 = 0
+    vb_sum: uint256 = 0
+    vb_prod, vb_sum = self._unpack_vb(self.vb_packed)
 
     # find lowest relative increase in balance
     assets: uint256 = 0
@@ -483,8 +487,7 @@ def add_liquidity(
         vb_sum_final = vb_sum
 
     self.supply = supply_final
-    self.vb_prod = vb_prod_final
-    self.vb_sum = vb_sum_final
+    self.vb_packed = self._pack_vb(vb_prod_final, vb_sum_final)
 
     return mint
 
@@ -503,8 +506,9 @@ def remove_liquidity(
     """
 
     num_assets: uint256 = self.num_assets
-    vb_prod: uint256 = self.vb_prod
-    vb_sum: uint256 = self.vb_sum
+    vb_prod: uint256 = 0
+    vb_sum: uint256 = 0
+    vb_prod, vb_sum = self._unpack_vb(self.vb_packed)
 
     # update supply
     prev_supply: uint256 = self.supply
@@ -527,8 +531,7 @@ def remove_liquidity(
         assert amount >= _min_amounts[asset] # dev: slippage
         assert ERC20(self.assets[asset]).transfer(_receiver, amount, default_return_value=True)
 
-    self.vb_prod = vb_prod
-    self.vb_sum = vb_sum
+    self.vb_packed = self._pack_vb(vb_prod, vb_sum)
 
 @external
 @nonreentrant('lock')
@@ -552,7 +555,8 @@ def remove_liquidity_single(
     # update rate
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
-    vb_prod, vb_sum = self._update_rates(unsafe_add(_asset, 1), self.vb_prod, self.vb_sum)
+    vb_prod, vb_sum = self._unpack_vb(self.vb_packed)
+    vb_prod, vb_sum = self._update_rates(unsafe_add(_asset, 1), vb_prod, vb_sum)
     prev_vb_sum: uint256 = vb_sum
 
     # update supply
@@ -600,8 +604,7 @@ def remove_liquidity_single(
         # mint fee
         supply, vb_prod = self._update_supply(supply, vb_prod, vb_sum)
 
-    self.vb_prod = vb_prod
-    self.vb_sum = vb_sum
+    self.vb_packed = self._pack_vb(vb_prod, vb_sum)
 
     assert ERC20(self.assets[_asset]).transfer(_receiver, dx, default_return_value=True)
     log RemoveLiquiditySingle(msg.sender, _receiver, _asset, dx, _lp_amount)
@@ -624,7 +627,11 @@ def update_rates(_assets: DynArray[uint256, MAX_NUM_ASSETS]):
 
     if len(_assets) == 0:
         assets = ALL_ASSETS_FLAG
-    self.vb_prod, self.vb_sum = self._update_rates(assets, self.vb_prod, self.vb_sum)
+    vb_prod: uint256 = 0
+    vb_sum: uint256 = 0
+    vb_prod, vb_sum = self._unpack_vb(self.vb_packed)
+    vb_prod, vb_sum = self._update_rates(assets, vb_prod, vb_sum)
+    self.vb_packed = self._pack_vb(vb_prod, vb_sum)
 
 @external
 def update_weights() -> bool:
@@ -635,13 +642,19 @@ def update_weights() -> bool:
     """
     updated: bool = False
     vb_prod: uint256 = 0
-    vb_sum: uint256 = self.vb_sum
-    vb_prod, updated = self._update_weights(self.vb_prod, vb_sum)
+    vb_sum: uint256 = 0
+    vb_prod, vb_sum = self._unpack_vb(self.vb_packed)
+    vb_prod, updated = self._update_weights(vb_prod, vb_sum)
     if updated and vb_sum > 0:
         supply: uint256 = 0
         supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
-        self.vb_prod = vb_prod
+        self.vb_packed = self._pack_vb(vb_prod, vb_sum)
     return updated
+
+@external
+@view
+def vb_prod_sum() -> (uint256, uint256):
+    return self._unpack_vb(self.vb_packed)
 
 @external
 @view
@@ -728,7 +741,7 @@ def add_asset(
     prev_num_assets: uint256 = self.num_assets
     assert prev_num_assets < MAX_NUM_ASSETS # dev: pool is full
     assert self.ramp_last_time == 0 # dev: ramp active
-    assert self.vb_sum > 0 # dev: pool empty
+    assert self.supply > 0 # dev: pool empty
 
     rate: uint256 = RateProvider(_rate_provider).rate(_asset)
     assert rate > 0 # dev: no rate
@@ -770,8 +783,7 @@ def add_asset(
     supply, vb_prod = self._calc_supply(num_assets, vb_sum, self.amplification, vb_prod, vb_sum, True)
 
     self.supply = supply
-    self.vb_prod = vb_prod
-    self.vb_sum = vb_sum
+    self.vb_packed = self._pack_vb(vb_prod, vb_sum)
 
     PoolToken(token).mint(_receiver, supply - prev_supply)
     log AddAsset(prev_num_assets, _asset, _rate_provider, rate, _weight, _amount)
@@ -825,7 +837,11 @@ def set_rate_provider(_asset: uint256, _rate_provider: address):
     assert _asset < self.num_assets # dev: index out of bounds
 
     self.rate_providers[_asset] = _rate_provider
-    self.vb_prod, self.vb_sum = self._update_rates(_asset + 1, self.vb_prod, self.vb_sum)
+    vb_prod: uint256 = 0
+    vb_sum: uint256 = 0
+    vb_prod, vb_sum = self._unpack_vb(self.vb_packed)
+    vb_prod, vb_sum = self._update_rates(_asset + 1, vb_prod, vb_sum)
+    self.vb_packed = self._pack_vb(vb_prod, vb_sum)
     log SetRateProvider(_asset, _rate_provider)
 
 @external
@@ -852,12 +868,13 @@ def set_ramp(
 
     updated: bool = False
     vb_prod: uint256 = 0
-    vb_sum: uint256 = self.vb_sum
-    vb_prod, updated = self._update_weights(self.vb_prod, vb_sum)
+    vb_sum: uint256 = 0
+    vb_prod, vb_sum = self._unpack_vb(self.vb_packed)
+    vb_prod, updated = self._update_weights(vb_prod, vb_sum)
     if updated:
         supply: uint256 = 0
         supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
-        self.vb_prod = vb_prod
+        self.vb_packed = self._pack_vb(vb_prod, vb_sum)
     
     assert self.ramp_last_time == 0 # dev: ramp active
 
@@ -1187,6 +1204,17 @@ def _pack_weight(_weight: uint256, _lower: uint256, _upper: uint256) -> uint256:
 @pure
 def _unpack_weight(_packed: uint256) -> (uint256, uint256, uint256):
     return _packed & WEIGHT_MASK, shift(_packed, LOWER_BAND_SHIFT) & WEIGHT_MASK, shift(_packed, UPPER_BAND_SHIFT)
+
+@internal
+@pure
+def _pack_vb(_prod: uint256, _sum: uint256) -> uint256:
+    assert _prod < VB_MASK and _sum < VB_MASK
+    return _prod | shift(_sum, -VB_SHIFT)
+
+@internal
+@pure
+def _unpack_vb(_packed: uint256) -> (uint256, uint256):
+    return _packed & VB_MASK, shift(_packed, VB_SHIFT)
 
 @internal
 @pure

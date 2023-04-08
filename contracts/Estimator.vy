@@ -15,8 +15,7 @@ interface Pool:
     def ramp_stop_time() -> uint256: view
     def target_amplification() -> uint256: view
     def target_weights(_i: uint256) -> uint256: view
-    def vb_prod() -> uint256: view
-    def vb_sum() -> uint256: view
+    def vb_prod_sum() -> (uint256, uint256): view
 
 interface RateProvider:
     def rate(_asset: address) -> uint256: view
@@ -89,9 +88,10 @@ def get_dy(_i: uint256, _j: uint256, _dx: uint256) -> uint256:
     amplification: uint256 = 0
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
+    vb_prod, vb_sum = pool.vb_prod_sum()
     weights: DynArray[uint256, MAX_NUM_ASSETS] = []
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-    supply, amplification, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), pool.vb_prod(), pool.vb_sum())
+    supply, amplification, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), vb_prod, vb_sum)
     prev_vb_sum: uint256 = vb_sum
 
     prev_vbx: uint256 = pool.balances(_i) * rates[0] / pool.rates(_i)
@@ -125,9 +125,10 @@ def get_dx(_i: uint256, _j: uint256, _dy: uint256) -> uint256:
     amplification: uint256 = 0
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
+    vb_prod, vb_sum = pool.vb_prod_sum()
     weights: DynArray[uint256, MAX_NUM_ASSETS] = []
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-    supply, amplification, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), pool.vb_prod(), pool.vb_sum())
+    supply, amplification, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), vb_prod, vb_sum)
     prev_vb_sum: uint256 = vb_sum
 
     prev_vbx: uint256 = pool.balances(_i) * rates[0] / pool.rates(_i)
@@ -161,8 +162,9 @@ def get_add_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
     num_assets: uint256 = pool.num_assets()
     assert len(_amounts) == num_assets
 
-    vb_prod: uint256 = pool.vb_prod()
-    vb_sum: uint256 = pool.vb_sum()
+    vb_prod: uint256 = 0
+    vb_sum: uint256 = 0
+    vb_prod, vb_sum = pool.vb_prod_sum()
     assert vb_sum > 0
     # for simplicity we dont give estimates for the first deposit
 
@@ -263,9 +265,10 @@ def get_remove_single_lp(_asset: uint256, _lp_amount: uint256) -> uint256:
     amplification: uint256 = 0
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
+    vb_prod, vb_sum = pool.vb_prod_sum()
     weights: DynArray[uint256, MAX_NUM_ASSETS] = []
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-    prev_supply, amplification, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_asset, 1), pool.vb_prod(), pool.vb_sum())
+    prev_supply, amplification, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_asset, 1), vb_prod, vb_sum)
     prev_vb_sum: uint256 = vb_sum
 
     supply: uint256 = prev_supply - _lp_amount
