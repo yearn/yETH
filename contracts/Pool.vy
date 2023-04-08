@@ -719,6 +719,7 @@ def add_asset(
     _lower: uint256, 
     _upper: uint256, 
     _amount: uint256, 
+    _amplification: uint256,
     _receiver: address = msg.sender
 ):
     """
@@ -729,15 +730,18 @@ def add_asset(
     @param _lower Lower band width
     @param _upper Upper band width
     @param _amount Amount of tokens
+    @param _amplification New pool amplification factor
     @param _receiver Account to receive the LP tokens minted
     @dev Can only be called if no ramp is currently active
     @dev Every other asset will have their weight reduced pro rata
+    @dev Caller should assure that effective amplification before and after call are the same
     """
     assert msg.sender == self.management
 
     assert _amount > 0
     prev_num_assets: uint256 = self.num_assets
     assert prev_num_assets < MAX_NUM_ASSETS # dev: pool is full
+    assert _amplification > 0
     assert self.ramp_last_time == 0 # dev: ramp active
     assert self.supply > 0 # dev: pool empty
 
@@ -778,8 +782,9 @@ def add_asset(
     # update supply
     prev_supply: uint256 = self.supply
     supply: uint256 = 0
-    supply, vb_prod = self._calc_supply(num_assets, vb_sum, self.amplification, vb_prod, vb_sum, True)
+    supply, vb_prod = self._calc_supply(num_assets, vb_sum, _amplification, vb_prod, vb_sum, True)
 
+    self.amplification = _amplification
     self.supply = supply
     self.vb_packed = self._pack_vb(vb_prod, vb_sum)
 
@@ -1076,7 +1081,6 @@ def _check_bands(_num_assets: uint256, _prev_ratio: uint256, _ratio: uint256, _w
         assert _ratio < _prev_ratio # dev: ratio above upper band
 
 # MATH FUNCTIONS
-# make sure to keep in sync with Math.vy
 
 @internal
 @view

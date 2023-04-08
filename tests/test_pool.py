@@ -332,3 +332,47 @@ def test_ramp_weight_empty(project, deployer, alice, token):
     vb_prod, vb_sum = pool.vb_prod_sum()
     assert vb_prod == 0
     assert vb_sum == 0
+
+def test_add_asset(project, deployer, alice, token):
+    # compare a pool of 5 assets with a pool with 4+1 assets
+    amt = 20 * PRECISION
+    n = 5
+    weights = [PRECISION//n for _ in range(n)]
+    assets, provider = deploy_assets(project, deployer, n)
+    
+    # 5 assets
+    amplification = calc_w_prod(weights) * 10
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], weights, sender=deployer)
+    pool.set_staking(alice, sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt, sender=deployer)
+    pool.add_liquidity([amt for _ in range(n)], 0, deployer, sender=alice)
+    vb_sum, vb_prod = pool.vb_prod_sum()
+    supply = pool.supply()
+    w1 = [pool.weight(i) for i in range(5)]
+
+    # 4 + 1 assets
+    n = 4
+    weights = [PRECISION//n for _ in range(n)]
+    pool = project.Pool.deploy(token, calc_w_prod(weights) * 10, assets[:4], [provider for _ in range(n)], weights, sender=deployer)
+    pool.set_staking(alice, sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt, sender=deployer)
+    pool.add_liquidity([amt for _ in range(n)], 0, sender=alice)
+    pool.add_asset(assets[4], provider, PRECISION//5, PRECISION, PRECISION, amt, amplification, alice, sender=deployer)
+
+    vb_sum2, vb_prod2 = pool.vb_prod_sum()
+    supply2 = pool.supply()
+    w2 = [pool.weight(i) for i in range(5)]
+
+    assert vb_sum == vb_sum2
+    assert vb_prod == vb_prod2
+    assert supply == supply2
+    assert w1 == w2
+    assert token.balanceOf(deployer) == token.balanceOf(alice)
