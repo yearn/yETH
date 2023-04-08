@@ -242,7 +242,6 @@ def swap(
     assert _dx > 0 # dev: zero amount
 
     # update rates for from and to assets
-    assets: DynArray[uint256, MAX_NUM_ASSETS] = [_i, _j]
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     vb_prod, vb_sum = self._unpack_vb(self.vb_packed)
@@ -505,11 +504,6 @@ def remove_liquidity(
     @param _receiver Account to receive the assets
     """
 
-    num_assets: uint256 = self.num_assets
-    vb_prod: uint256 = 0
-    vb_sum: uint256 = 0
-    vb_prod, vb_sum = self._unpack_vb(self.vb_packed)
-
     # update supply
     prev_supply: uint256 = self.supply
     supply: uint256 = prev_supply - _lp_amount
@@ -518,14 +512,18 @@ def remove_liquidity(
     log RemoveLiquidity(msg.sender, _receiver, _lp_amount)
 
     # update necessary variables and transfer assets
+    num_assets: uint256 = self.num_assets
+    vb_prod: uint256 = PRECISION
+    vb_sum: uint256 = 0
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
         prev_bal: uint256 = self.balances[asset]
         dbal: uint256 = prev_bal * _lp_amount / prev_supply
         bal: uint256 = prev_bal - dbal
-        vb_prod = vb_prod * prev_supply / supply * self._pow_down(prev_bal * PRECISION / bal, self.weights[asset] & WEIGHT_MASK) / PRECISION
-        vb_sum -= dbal
+        weight: uint256 = self.weights[asset] & WEIGHT_MASK
+        vb_prod = unsafe_div(unsafe_mul(vb_prod, self._pow_down(unsafe_div(unsafe_mul(supply, unsafe_div(weight, num_assets)), bal), weight)), PRECISION)
+        vb_sum = unsafe_add(vb_sum, bal)
         self.balances[asset] = bal
         amount: uint256 = dbal * PRECISION / self.rates[asset]
         assert amount >= _min_amounts[asset] # dev: slippage
@@ -1104,11 +1102,7 @@ def _calc_vb_prod(_s: uint256) -> uint256:
         vb: uint256 = self.balances[asset]
         assert weight > 0 and vb > 0 # dev: borked
         # p = product((D * w_i / vb_i)^(w_i n))
-        p = unsafe_div(
-            unsafe_mul(
-                p, self._pow_down(unsafe_div(unsafe_mul(_s, unsafe_div(weight, num_assets)), vb), weight)
-            ), PRECISION
-        )
+        p = unsafe_div(unsafe_mul(p, self._pow_down(unsafe_div(unsafe_mul(_s, unsafe_div(weight, num_assets)), vb), weight)), PRECISION)
     return p
 
 @internal
