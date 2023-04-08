@@ -70,7 +70,7 @@ _Note:_ this mode is to be activated in the event of a LSD depeg, such as a mint
 - At the end of the week, the pending bucket becomes the streaming bucket and a new pending bucket is created
 - The streaming bucket is unlocked linearly during the week
 - User deposits and withdrawals only affect the unlocked bucket
-- Each user has an internal vote weight that increases asymptotically to the user's share count. After `t` seconds, their vote weight is `s t / (t + t_half)` where `t_half` is the voting half time
+- Each user has an internal vote weight that increases asymptotically to the user's share count. After `t` seconds, their vote weight is `s * t / (t + t_half)` where `s` is the number of shares and `t_half` is the voting half time
 - The voting half time determines the time it takes until half the voting weight is reached
 - The user's external vote weight is equal to the internal vote weight at the end of the previous week
 - Management can set the voting half time
