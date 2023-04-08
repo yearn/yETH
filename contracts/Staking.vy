@@ -21,6 +21,7 @@ known: public(uint256)
 pending: uint256
 streaming: uint256
 unlocked: uint256
+management: public(address)
 
 # fees
 performance_fee_rate: public(uint256)
@@ -95,6 +96,7 @@ def __init__(_asset: address):
     asset = _asset
     self.updated = block.timestamp
     self.half_time = WEEK_LENGTH
+    self.management = msg.sender
     self.treasury = msg.sender
     log Transfer(empty(address), msg.sender, 0)
 
@@ -384,7 +386,7 @@ def set_performance_fee_rate(_fee_rate: uint256):
     @notice Set the performance fee rate
     @param _fee_rate Performance fee rate (in 18 decimals)
     """
-    assert msg.sender == self.treasury
+    assert msg.sender == self.management
     self.performance_fee_rate = _fee_rate
     log SetFeeRate(_fee_rate)
 
@@ -394,9 +396,18 @@ def set_half_time(_half_time: uint256):
     @notice Set the time to reach half the voting weights
     @param _half_time Time to reach half voting weight (in seconds)
     """
-    assert msg.sender == self.treasury
+    assert msg.sender == self.management
     assert _half_time > 0
     self.half_time = _half_time
+
+@external
+def set_management(_management: address):
+    """
+    @notice Set the management
+    @param _management The new management address
+    """
+    assert msg.sender == self.management
+    self.management = _management
 
 @external
 def set_treasury(_treasury: address):
@@ -404,7 +415,7 @@ def set_treasury(_treasury: address):
     @notice Set the performance fee beneficiary
     @param _treasury The new treasury address
     """
-    assert msg.sender == self.treasury
+    assert msg.sender == self.management or msg.sender == self.treasury
     self.treasury = _treasury
 
 # internal functions
