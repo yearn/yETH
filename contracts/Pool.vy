@@ -36,7 +36,7 @@ ramp_step: public(uint256)
 ramp_last_time: public(uint256)
 ramp_stop_time: public(uint256)
 target_amplification: public(uint256)
-target_weights: public(uint256[MAX_NUM_ASSETS])
+target_weights: uint256[MAX_NUM_ASSETS] # w_i * n
 
 vb_packed: uint256 # vb_prod (128) | vb_sum (128)
 # vb_prod: product((w_i * D / x_i)^(w_i n))
@@ -669,6 +669,13 @@ def weight(_asset: uint256) -> (uint256, uint256, uint256):
     upper: uint256 = 0
     weight, lower, upper = self._unpack_weight(self.weights[_asset])
     return weight / num_assets, lower / num_assets, upper / num_assets
+
+@external
+@view
+def target_weight(_asset: uint256) -> uint256:
+    if self.ramp_last_time == 0:
+        return (self.weights[_asset] & WEIGHT_MASK) / self.num_assets
+    return self.target_weights[_asset] / self.num_assets
 
 @external
 @view

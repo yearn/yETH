@@ -14,7 +14,7 @@ interface Pool:
     def ramp_last_time() -> uint256: view
     def ramp_stop_time() -> uint256: view
     def target_amplification() -> uint256: view
-    def target_weights(_i: uint256) -> uint256: view
+    def target_weight(_i: uint256) -> uint256: view
     def vb_prod_sum() -> (uint256, uint256): view
 
 interface RateProvider:
@@ -75,6 +75,47 @@ A11: constant(int256) = 1_064_49_445_891_785_942_956
 @external
 def __init__(_pool: address):
     pool = Pool(_pool)
+
+@external
+@view
+def get_effective_amplification() -> uint256:
+    vb_prod: uint256 = 0
+    vb_sum: uint256 = 0
+    amplification: uint256 = 0
+    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
+    updated: bool = False
+    vb_prod, vb_sum = pool.vb_prod_sum()
+    amplification, vb_prod, weights, updated = self._get_weights(vb_prod, vb_sum)
+
+    num_assets: uint256 = pool.num_assets()
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
+            break
+        weight: uint256 = 0
+        if updated:
+            weight = weights[asset] & WEIGHT_MASK
+        else:
+            weight = pool.weight_packed(asset) & WEIGHT_MASK
+
+        amplification = amplification * self._pow_down(weight / num_assets, weight) / PRECISION
+    return amplification
+
+@external
+@view
+def get_effective_target_amplification() -> uint256:
+    amplification: uint256 = 0
+    if pool.ramp_last_time() == 0:
+        amplification = pool.amplification()
+    else:
+        amplification = pool.target_amplification()
+
+    num_assets: uint256 = pool.num_assets()
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
+            break
+        weight: uint256 = pool.target_weight(asset)
+        amplification = amplification * self._pow_down(weight, weight * num_assets) / PRECISION
+    return amplification
 
 @external
 @view
@@ -391,7 +432,7 @@ def _get_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, DynA
         if asset == num_assets:
             break
         current, lower, upper = self._unpack_weight(pool.weight_packed(asset))
-        target = pool.target_weights(asset)
+        target = pool.target_weight(asset) * num_assets
         if duration == 0:
             current = target
         else:

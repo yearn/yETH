@@ -286,6 +286,11 @@ def test_ramp_weight(chain, deployer, alice, bob, token, weights, pool, estimato
         amts.append(amt)
         asset.mint(alice, amt, sender=alice)
     pool.add_liquidity(amts, 0, deployer, sender=alice)
+    ampl = PRECISION
+    act = estimator.get_effective_amplification()
+    tar = estimator.get_effective_target_amplification()
+    assert abs(act - ampl) / ampl < 5e-16
+    assert act == tar
 
     assets[1].mint(alice, PRECISION, sender=alice)
     assets[2].mint(alice, PRECISION, sender=alice)
@@ -307,16 +312,21 @@ def test_ramp_weight(chain, deployer, alice, bob, token, weights, pool, estimato
     ts = chain.pending_timestamp
     pool.set_ramp(calc_w_prod(weights2), weights2, WEEK_LENGTH, sender=deployer)
 
+    # estimator calculates correct target amplification
+    tar = estimator.get_effective_target_amplification()
+    assert abs(tar - ampl) / ampl < 3e-16
+    
     # halfway ramp
     chain.pending_timestamp = ts + WEEK_LENGTH // 2
     amts = [PRECISION if i == 1 else 0 for i in range(n)]
     with chain.isolate():
         chain.mine()
         exp = estimator.get_add_lp(amts)
+        ampl_mid = estimator.get_effective_amplification()
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         mid_1 = token.balanceOf(bob)
-        assert abs(mid_1 - exp) <= 5 # TODO
+        assert abs(mid_1 - exp) <= 5
     amts = [PRECISION if i == 2 else 0 for i in range(n)]
     with chain.isolate():
         chain.mine()
@@ -324,12 +334,15 @@ def test_ramp_weight(chain, deployer, alice, bob, token, weights, pool, estimato
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         mid_2 = token.balanceOf(bob)
-        assert abs(mid_2 - exp) <= 21 # TODO
+        assert abs(mid_2 - exp) <= 21
     
     # asset 1 share is below weight -> bonus
     assert mid_1 > base_1
     # asset 2 share is above weight -> penalty
     assert mid_2 < base_2
+
+    # effective amplification changes slightly during ramp
+    assert abs(ampl_mid - ampl) / ampl < 0.04
 
     # end of ramp
     chain.pending_timestamp = ts + WEEK_LENGTH
@@ -337,10 +350,11 @@ def test_ramp_weight(chain, deployer, alice, bob, token, weights, pool, estimato
     with chain.isolate():
         chain.mine()
         exp = estimator.get_add_lp(amts)
+        ampl_end = estimator.get_effective_amplification()
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         end_1 = token.balanceOf(bob)
-        assert abs(end_1 - exp) <= 21 # TODO
+        assert abs(end_1 - exp) <= 21
     amts = [PRECISION if i == 2 else 0 for i in range(n)]
     with chain.isolate():
         chain.mine()    
@@ -348,13 +362,16 @@ def test_ramp_weight(chain, deployer, alice, bob, token, weights, pool, estimato
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         end_2 = token.balanceOf(bob)
-        assert abs(end_2 - exp) <= 18 # TODO
+        assert abs(end_2 - exp) <= 18
     
     # asset 1 share is more below weight -> bigger bonus
     assert end_1 > mid_1
 
     # asset 2 share is more above weight -> bigger penalty
     assert end_2 < mid_2
+
+    # effective amplification is back to expected value after ramp
+    assert abs(ampl_end - ampl) / ampl < 3e-16
 
 def test_ramp_amplification(chain, deployer, alice, bob, token, weights, pool, estimator):
     assets, provider, pool = pool
@@ -378,23 +395,31 @@ def test_ramp_amplification(chain, deployer, alice, bob, token, weights, pool, e
         pool.add_liquidity([amt if i == 1 else 0 for i in range(n)], 0, bob, sender=alice)
         base = token.balanceOf(bob)
 
-    amplification = 10 * pool.amplification()
+    ampl = 10 * PRECISION
     ts = chain.pending_timestamp
-    pool.set_ramp(amplification, weights, WEEK_LENGTH, sender=deployer)
+    pool.set_ramp(10 * pool.amplification(), weights, WEEK_LENGTH, sender=deployer)
+
+    tar = estimator.get_effective_target_amplification()
+    assert abs(tar - ampl) / ampl < 5e-16
 
     # halfway ramp
+    exp_half = (ampl + PRECISION) // 2
     chain.pending_timestamp = ts + WEEK_LENGTH // 2
     amts = [amt if i == 1 else 0 for i in range(n)]
     with chain.isolate():
         chain.mine()
         exp = estimator.get_add_lp(amts)
+        ampl_half = estimator.get_effective_amplification()
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         mid = token.balanceOf(bob)
-        assert abs(mid - exp) <= 16 # TODO
+        assert abs(mid - exp) <= 16
     
     # higher amplification -> lower penalty
     assert mid > base
+
+    # effective amplification is in between begin and target
+    assert abs(ampl_half - exp_half) / exp_half < 5e-16
 
     # end of ramp
     chain.pending_timestamp = ts + WEEK_LENGTH
@@ -402,13 +427,17 @@ def test_ramp_amplification(chain, deployer, alice, bob, token, weights, pool, e
     with chain.isolate():
         chain.mine()
         exp = estimator.get_add_lp(amts)
+        ampl_end = estimator.get_effective_amplification()
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         end = token.balanceOf(bob)
-        assert abs(end - exp) <= 9 # TODO
+        assert abs(end - exp) <= 9
     
     # even lower penalty
     assert end > mid
+
+    # effective amplification is equal to target
+    assert abs(ampl_end - ampl) / ampl < 5e-16
 
 def test_band(chain, deployer, alice, bob, weights, pool, estimator):
     assets, provider, pool = pool
