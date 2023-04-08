@@ -1,3 +1,4 @@
+import math
 import pytest
 
 PRECISION = 1_000_000_000_000_000_000
@@ -28,3 +29,10 @@ def deploy_assets(project, deployer, n):
         provider.set_rate(asset, (i + 2) * PRECISION, sender=deployer)
         assets.append(asset)
     return assets, provider
+
+def calc_w_prod(weights):
+    prod = PRECISION
+    n = len(weights)
+    for w in weights:
+        prod = int(prod / math.pow(w / PRECISION, w * n / PRECISION))
+    return prod

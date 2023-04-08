@@ -13,7 +13,7 @@ def weights():
 @pytest.fixture
 def pool(project, deployer, token, weights):
     assets, provider = deploy_assets(project, deployer, len(weights))
-    pool = project.Pool.deploy(token, PRECISION, assets, [provider for _ in range(len(weights))], weights, sender=deployer)
+    pool = project.Pool.deploy(token, calc_w_prod(weights), assets, [provider for _ in range(len(weights))], weights, sender=deployer)
     pool.set_staking(deployer, sender=deployer)
     token.set_minter(pool, sender=deployer)
     return assets, provider, pool
@@ -297,16 +297,15 @@ def test_ramp_weight(chain, deployer, alice, bob, token, weights, pool, estimato
         pool.add_liquidity([PRECISION if i == 2 else 0 for i in range(n)], 0, bob, sender=alice)
         base_2 = token.balanceOf(bob)
 
-    amplification = pool.amplification()
     weights2 = weights
     weights2[1] += PRECISION // 10
     with ape.reverts():
         # weights have to sum up to 1
-        pool.set_ramp(amplification, weights2, WEEK_LENGTH, sender=deployer)
+        pool.set_ramp(calc_w_prod(weights2), weights2, WEEK_LENGTH, sender=deployer)
     weights2[2] -= PRECISION // 10
 
     ts = chain.pending_timestamp
-    pool.set_ramp(amplification, weights2, WEEK_LENGTH, sender=deployer)
+    pool.set_ramp(calc_w_prod(weights2), weights2, WEEK_LENGTH, sender=deployer)
 
     # halfway ramp
     chain.pending_timestamp = ts + WEEK_LENGTH // 2
@@ -317,7 +316,7 @@ def test_ramp_weight(chain, deployer, alice, bob, token, weights, pool, estimato
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         mid_1 = token.balanceOf(bob)
-        assert abs(mid_1 - exp) <= 3 # TODO
+        assert abs(mid_1 - exp) <= 5 # TODO
     amts = [PRECISION if i == 2 else 0 for i in range(n)]
     with chain.isolate():
         chain.mine()

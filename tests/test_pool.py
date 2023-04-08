@@ -1,4 +1,4 @@
-from ape.utils import to_int
+from conftest import calc_w_prod
 import pytest
 
 PRECISION = 1_000_000_000_000_000_000
@@ -29,11 +29,11 @@ def deploy_assets(project, deployer, n):
         assets.append(asset)
     return assets, provider
 
-def test_withdraw(project, deployer, alice, bob, token):
-    amplification = 10 * PRECISION
+def test_withdraw(project, deployer, alice, token):
     n = 4
     assets, provider = deploy_assets(project, deployer, n)
-    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    weights = [PRECISION//n for _ in range(n)]
+    pool = project.Pool.deploy(token, calc_w_prod(weights) * 10, assets, [provider for _ in range(n)], weights, sender=deployer)
     token.set_minter(pool, sender=deployer)
     estimator = project.Estimator.deploy(pool, sender=deployer)
 
@@ -54,10 +54,10 @@ def test_withdraw(project, deployer, alice, bob, token):
         assert abs(bal - amt // n // 10) <= 1
 
 def test_withdraw_single(project, deployer, alice, bob, token):
-    amplification = 10 * PRECISION
     n = 4
     assets, provider = deploy_assets(project, deployer, n)
-    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    weights = [PRECISION//n for _ in range(n)]
+    pool = project.Pool.deploy(token, calc_w_prod(weights) * 10, assets, [provider for _ in range(n)], weights, sender=deployer)
     token.set_minter(pool, sender=deployer)
     estimator = project.Estimator.deploy(pool, sender=deployer)
 
@@ -94,10 +94,10 @@ def test_withdraw_single(project, deployer, alice, bob, token):
     assert abs(vb_prod2 - vb_prod) / vb_prod < 1e-14
 
 def test_swap(project, deployer, alice, bob, token):
-    amplification = 10 * PRECISION
     n = 4
     assets, provider = deploy_assets(project, deployer, n)
-    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    weights = [PRECISION//n for _ in range(n)]
+    pool = project.Pool.deploy(token, calc_w_prod(weights) * 10, assets, [provider for _ in range(n)], weights, sender=deployer)
     token.set_minter(pool, sender=deployer)
     estimator = project.Estimator.deploy(pool, sender=deployer)
 
@@ -139,10 +139,10 @@ def test_swap(project, deployer, alice, bob, token):
     assert (vb_sum2 - vb_sum) / vb_sum < 2e-14
 
 def test_swap_fee(project, chain, deployer, alice, bob, token):
-    amplification = 10 * PRECISION
     n = 4
     assets, provider = deploy_assets(project, deployer, n)
-    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    weights = [PRECISION//n for _ in range(n)]
+    pool = project.Pool.deploy(token, calc_w_prod(weights) * 10, assets, [provider for _ in range(n)], weights, sender=deployer)
     token.set_minter(pool, sender=deployer)
     estimator = project.Estimator.deploy(pool, sender=deployer)
 
@@ -179,10 +179,10 @@ def test_swap_fee(project, chain, deployer, alice, bob, token):
     assert abs(fee_rate - actual_fee_rate) / fee_rate < 0.01
 
 def test_swap_exact_out(project, deployer, alice, bob, token):
-    amplification = 10 * PRECISION
     n = 4
     assets, provider = deploy_assets(project, deployer, n)
-    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    weights = [PRECISION//n for _ in range(n)]
+    pool = project.Pool.deploy(token, calc_w_prod(weights) * 10, assets, [provider for _ in range(n)], weights, sender=deployer)
     token.set_minter(pool, sender=deployer)
     estimator = project.Estimator.deploy(pool, sender=deployer)
 
@@ -229,11 +229,11 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
     assert (vb_sum2 - vb_sum) / vb_sum < 2e-14
 
 def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
-    amplification = 10 * PRECISION
     n = 4
     fee_rate = PRECISION // 10 # 10%
     assets, provider = deploy_assets(project, deployer, n)
-    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    weights = [PRECISION//n for _ in range(n)]
+    pool = project.Pool.deploy(token, calc_w_prod(weights) * 10, assets, [provider for _ in range(n)], weights, sender=deployer)
     token.set_minter(pool, sender=deployer)
     estimator = project.Estimator.deploy(pool, sender=deployer)
 
@@ -286,10 +286,10 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     assert vb_sum == vb_sum2
 
 def test_rate_update(project, deployer, alice, token):
-    amplification = 10 * PRECISION
     n = 4
     assets, provider = deploy_assets(project, deployer, n)
-    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], [PRECISION//n for _ in range(n)], sender=deployer)
+    weights = [PRECISION//n for _ in range(n)]
+    pool = project.Pool.deploy(token, calc_w_prod(weights) * 10, assets, [provider for _ in range(n)], weights, sender=deployer)
     pool.set_staking(deployer, sender=deployer)
     token.set_minter(pool, sender=deployer)
 
@@ -322,11 +322,10 @@ def test_rate_update(project, deployer, alice, token):
 
 def test_ramp_weight_empty(project, deployer, alice, token):
     # weights can be updated when pool is empty
-    amplification = 10 * PRECISION
     n = 5
     assets, provider = deploy_assets(project, deployer, n)
     weights = [PRECISION//n for _ in range(n)]
-    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], weights, sender=deployer)
+    pool = project.Pool.deploy(token, calc_w_prod(weights) * 10, assets, [provider for _ in range(n)], weights, sender=deployer)
     pool.set_staking(alice, sender=deployer)
     token.set_minter(pool, sender=deployer)
 
@@ -334,13 +333,11 @@ def test_ramp_weight_empty(project, deployer, alice, token):
     weights[0] -= 4 * diff
     for i in range(1, n):
         weights[i] += diff
-    pool.set_ramp(amplification, weights, 0, sender=deployer)
+    pool.set_ramp(calc_w_prod(weights) * 10, weights, 0, sender=deployer)
     pool.update_weights(sender=deployer)
     for i in range(n):
         assert pool.weight(i)[0] == weights[i]
-    w_prod = pool.w_prod()
     vb_prod = pool.vb_prod()
     vb_sum = pool.vb_sum()
-    assert w_prod == 0
     assert vb_prod == 0
     assert vb_sum == 0

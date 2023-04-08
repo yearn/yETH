@@ -19,7 +19,7 @@ interface PoolToken:
 
 token: public(immutable(address))
 supply: public(uint256)
-amplification_packed: uint256 # amplification (128) | target amplification (128)
+amplification: public(uint256) # A f^n
 staking: public(address)
 num_assets: public(uint256)
 assets: public(address[MAX_NUM_ASSETS])
@@ -35,9 +35,9 @@ swap_fee_rate: public(uint256)
 ramp_step: public(uint256)
 ramp_last_time: public(uint256)
 ramp_stop_time: public(uint256)
+target_amplification: public(uint256)
 target_weights: public(uint256[MAX_NUM_ASSETS])
 
-w_prod: public(uint256) # weight product: A/product(w_i^(w_i n)) = A/w^n
 vb_prod: public(uint256) # virtual balance product: D^n / product((b_i r_i / w_i)^(w_i n))
 vb_sum: public(uint256) # virtual balance sum: sum(b_i r_i)
 
@@ -126,8 +126,6 @@ ALL_ASSETS_FLAG: constant(uint256) = 1452899125086140466683453543538461576585666
 WEIGHT_MASK: constant(uint256) = 2**85 - 1
 LOWER_BAND_SHIFT: constant(int128) = -85
 UPPER_BAND_SHIFT: constant(int128) = -170
-AMPLIFICATION_MASK: constant(uint256) = 2**128 - 1
-AMPLIFICATION_SHIFT: constant(int256) = -128
 
 # powers of 10
 E3: constant(int256)               = 1_000
@@ -194,10 +192,10 @@ def __init__(
     num_assets: uint256 = len(_assets)
     assert num_assets >= 2
     assert len(_rate_providers) == num_assets and len(_weights) == num_assets
-    assert _amplification > 0 and _amplification < AMPLIFICATION_MASK
+    assert _amplification > 0
 
     token = _token
-    self.amplification_packed = _amplification
+    self.amplification = _amplification
     self.num_assets = num_assets
     
     weight_sum: uint256 = 0
@@ -261,7 +259,7 @@ def swap(
     vb_sum = vb_sum + dvbx - prev_vby
 
     # calulate new balance of out token
-    vby: uint256 = self._calc_vb(weight_y, prev_vby, self.supply, self.w_prod, vb_prod, vb_sum)
+    vby: uint256 = self._calc_vb(weight_y, prev_vby, self.supply, self.amplification, vb_prod, vb_sum)
     vb_sum += vby
 
     # check bands
@@ -342,7 +340,7 @@ def swap_exact_out(
     vb_sum = vb_sum - dvby - prev_vbx
 
     # calulate new balance of in token
-    vbx: uint256 = self._calc_vb(weight_x, prev_vbx, self.supply, self.w_prod, vb_prod, vb_sum)
+    vbx: uint256 = self._calc_vb(weight_x, prev_vbx, self.supply, self.amplification, vb_prod, vb_sum)
     dx: uint256 = (vbx - prev_vbx) * PRECISION / self.rates[_i]
     dx_fee: uint256 = self.swap_fee_rate
     dx_fee = dx * dx_fee / (PRECISION - dx_fee)
@@ -454,7 +452,6 @@ def add_liquidity(
     supply: uint256 = prev_supply
     if prev_supply == 0:
         # initital deposit, calculate necessary variables
-        self.w_prod = self._calc_w_prod()
         vb_prod, vb_sum = self._calc_vb_prod_sum()
         assert vb_prod > 0 # dev: amounts must be non-zero
         supply = vb_sum
@@ -470,7 +467,7 @@ def add_liquidity(
             j = unsafe_add(j, 1)
 
     # mint LP tokens
-    supply, vb_prod = self._calc_supply(num_assets, supply, self.w_prod, vb_prod, vb_sum, prev_supply == 0)
+    supply, vb_prod = self._calc_supply(num_assets, supply, self.amplification, vb_prod, vb_sum, prev_supply == 0)
     mint: uint256 = supply - prev_supply
     assert mint > 0 and mint >= _min_lp_amount # dev: slippage
     PoolToken(token).mint(_receiver, mint)
@@ -479,7 +476,7 @@ def add_liquidity(
     supply_final: uint256 = supply
     if prev_supply > 0:
         # mint fees
-        supply_final, vb_prod_final = self._calc_supply(num_assets, prev_supply, self.w_prod, vb_prod_final, vb_sum_final, True)
+        supply_final, vb_prod_final = self._calc_supply(num_assets, prev_supply, self.amplification, vb_prod_final, vb_sum_final, True)
         PoolToken(token).mint(self.staking, supply_final - supply)
     else:
         vb_prod_final = vb_prod
@@ -577,7 +574,7 @@ def remove_liquidity_single(
     vb_sum = vb_sum - prev_vb
 
     # calculate new balance of asset
-    vb: uint256 = self._calc_vb(weight, prev_vb, supply, self.w_prod, vb_prod, vb_sum)
+    vb: uint256 = self._calc_vb(weight, prev_vb, supply, self.amplification, vb_prod, vb_sum)
     dvb: uint256 = prev_vb - vb
     fee: uint256 = dvb * self.swap_fee_rate / 2 / PRECISION
     dvb -= fee
@@ -674,16 +671,6 @@ def weight_packed(_asset: uint256) -> uint256:
     return self.weights[_asset]
 
 @external
-@view
-def amplification() -> uint256:
-    return self.amplification_packed & AMPLIFICATION_MASK
-
-@external
-@view
-def target_amplification() -> uint256:
-    return shift(self.amplification_packed, AMPLIFICATION_SHIFT)
-
-@external
 def pause():
     """
     @notice Pause the pool
@@ -773,7 +760,6 @@ def add_asset(
     self.weights[prev_num_assets] = self._pack_weight(_weight * num_assets, _lower * num_assets, _upper * num_assets)
 
     # recalculate variables
-    w_prod: uint256 = self._calc_w_prod()
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     vb_prod, vb_sum = self._calc_vb_prod_sum()
@@ -781,10 +767,9 @@ def add_asset(
     # update supply
     prev_supply: uint256 = self.supply
     supply: uint256 = 0
-    supply, vb_prod = self._calc_supply(num_assets, vb_sum, w_prod, vb_prod, vb_sum, True)
+    supply, vb_prod = self._calc_supply(num_assets, vb_sum, self.amplification, vb_prod, vb_sum, True)
 
     self.supply = supply
-    self.w_prod = w_prod
     self.vb_prod = vb_prod
     self.vb_sum = vb_sum
 
@@ -856,11 +841,12 @@ def set_ramp(
     @param _weights Array of new weight for each asset (in 18 decimals)
     @param _duration Duration of the ramp (in seconds)
     @param _start Ramp start time
+    @dev Effective amplification at any time is `self.amplification/f^n`
     """
     assert msg.sender == self.management
 
     num_assets: uint256 = self.num_assets
-    assert _amplification > 0 and _amplification < AMPLIFICATION_MASK
+    assert _amplification > 0
     assert len(_weights) == num_assets
     assert _start >= block.timestamp
 
@@ -878,8 +864,7 @@ def set_ramp(
     self.ramp_last_time = _start
     self.ramp_stop_time = _start + _duration
     
-    current: uint256 = self.amplification_packed & AMPLIFICATION_MASK
-    self.amplification_packed = current | shift(_amplification, -AMPLIFICATION_SHIFT)
+    self.target_amplification = _amplification
 
     total: uint256 = 0
     for asset in range(MAX_NUM_ASSETS):
@@ -1004,9 +989,8 @@ def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, bool):
     span = block.timestamp - span
     
     # update amplification
-    current: uint256 = self.amplification_packed
-    target: uint256 = shift(current, AMPLIFICATION_SHIFT)
-    current = current & AMPLIFICATION_MASK
+    current: uint256 = self.amplification
+    target: uint256 = self.target_amplification
     if duration == 0:
         current = target
     else:
@@ -1014,7 +998,7 @@ def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, bool):
             current = current - (current - target) * span / duration
         else:
             current = current + (target - current) * span / duration
-    self.amplification_packed = current | shift(target, -AMPLIFICATION_SHIFT)
+    self.amplification = current
 
     # update weights
     num_assets: uint256 = self.num_assets
@@ -1036,7 +1020,6 @@ def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, bool):
 
     vb_prod: uint256 = 0
     if _vb_sum > 0:
-        self.w_prod = self._calc_w_prod()
         vb_prod = self._calc_vb_prod(_vb_sum)
     return vb_prod, True
 
@@ -1048,7 +1031,7 @@ def _update_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (ui
 
     supply: uint256 = 0
     vb_prod: uint256 = 0
-    supply, vb_prod = self._calc_supply(self.num_assets, _supply, self.w_prod, _vb_prod, _vb_sum, True)
+    supply, vb_prod = self._calc_supply(self.num_assets, _supply, self.amplification, _vb_prod, _vb_sum, True)
     if supply > _supply:
         PoolToken(token).mint(self.staking, supply - _supply)
     elif supply < _supply:
@@ -1079,18 +1062,6 @@ def _check_bands(_num_assets: uint256, _prev_ratio: uint256, _ratio: uint256, _w
 
 # MATH FUNCTIONS
 # make sure to keep in sync with Math.vy
-
-@internal
-@view
-def _calc_w_prod() -> uint256:
-    prod: uint256 = self.amplification_packed & AMPLIFICATION_MASK
-    num_assets: uint256 = self.num_assets
-    for asset in range(MAX_NUM_ASSETS):
-        if asset == num_assets:
-            break
-        weight: uint256 = self.weights[asset] & WEIGHT_MASK
-        prod = prod * PRECISION / self._pow_up(unsafe_div(weight, num_assets), weight)
-    return prod
 
 @internal
 @view
@@ -1128,7 +1099,7 @@ def _calc_vb_prod(_s: uint256) -> uint256:
 def _calc_supply(
     _num_assets: uint256, 
     _supply: uint256, 
-    _w_prod: uint256, 
+    _amplification: uint256,
     _vb_prod: uint256, 
     _vb_sum: uint256, 
     _up: bool
@@ -1136,7 +1107,7 @@ def _calc_supply(
     # s[n+1] = (A sum / w^n - s^(n+1) w^n /prod^n)) / (A w^n - 1)
     #        = (l - s r) / d
 
-    l: uint256 = _w_prod
+    l: uint256 = _amplification
     d: uint256 = l - PRECISION
     s: uint256 = _supply
     r: uint256 = _vb_prod
@@ -1173,7 +1144,7 @@ def _calc_vb(
     _weight: uint256, 
     _y: uint256, 
     _supply: uint256, 
-    _w_prod: uint256, 
+    _amplification: uint256,
     _vb_prod: uint256, 
     _vb_sum: uint256
 ) -> uint256:
@@ -1186,7 +1157,7 @@ def _calc_vb(
     #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / ((f_j + 1) y[n] + b))
 
     d: uint256 = _supply
-    b: uint256 = d * PRECISION / _w_prod # actually b + D
+    b: uint256 = d * PRECISION / _amplification # actually b + D
     c: uint256 = _vb_prod * b / PRECISION
     b += _vb_sum
     v: uint256 = _weight & WEIGHT_MASK
@@ -1244,6 +1215,7 @@ def _pow_down(_x: uint256, _y: uint256) -> uint256:
 @pure
 def _pow(_x: uint256, _y: uint256) -> uint256:
     # x^y
+    # adapted from Balancer at https://github.com/balancer-labs/balancer-v2-monorepo/blob/599b0cd8f744e1eabef3600d79a2c2b0aea3ddcb/pkg/solidity-utils/contracts/math/LogExpMath.sol
     if _y == 0:
         return convert(E18, uint256) # x^0 == 1
 
