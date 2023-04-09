@@ -498,3 +498,35 @@ def test_kill(project, deployer, alice, token):
 
     with ape.reverts():
         pool.unpause(sender=management)
+
+def test_change_rate_provider(project, deployer, alice, token):
+    n = 4
+    weights = [PRECISION//n for _ in range(n)]
+    assets, provider = deploy_assets(project, deployer, n)
+    
+    amplification = calc_w_prod(weights) * 10
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], weights, sender=deployer)
+    pool.set_staking(deployer, sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    amt = 100 * PRECISION
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt, sender=deployer)
+    pool.add_liquidity([amt for _ in range(n)], 0, sender=alice)
+
+    provider2 = project.MockRateProvider.deploy(sender=deployer)
+
+    # rate provider must provide a rate
+    assert provider2.rate(assets[0]) == 0
+    with ape.reverts():
+        pool.set_rate_provider(0, provider2, sender=deployer)
+
+    provider2.set_rate(assets[0], PRECISION * 101 // 100, sender=deployer)
+
+    # only management can set rate provider
+    with ape.reverts():
+        pool.set_rate_provider(0, provider2, sender=alice)
+
+    pool.set_rate_provider(0, provider2, sender=deployer)
+    assert token.balanceOf(deployer) > 0
