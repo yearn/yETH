@@ -1,3 +1,4 @@
+import ape
 from conftest import calc_w_prod
 import pytest
 
@@ -376,3 +377,122 @@ def test_add_asset(project, deployer, alice, token):
     assert supply == supply2
     assert w1 == w2
     assert token.balanceOf(deployer) == token.balanceOf(alice)
+
+def test_pause(project, chain, deployer, alice, bob, token):
+    management = deployer
+    guardian = alice
+
+    n = 4
+    weights = [PRECISION//n for _ in range(n)]
+    assets, provider = deploy_assets(project, deployer, n)
+    
+    amplification = calc_w_prod(weights) * 10
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], weights, sender=deployer)
+    pool.set_staking(deployer, sender=deployer)
+    pool.set_guardian(guardian, sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    amt = 100 * PRECISION
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt, sender=deployer)
+    pool.add_liquidity([amt for _ in range(n)], 0, deployer, sender=alice)
+
+    assets[0].mint(alice, 2 * PRECISION, sender=alice)
+
+    # before pausing, all of these functions can be called
+    with chain.isolate():
+        pool.swap(0, 1, PRECISION, 0, sender=alice)
+    with chain.isolate():
+        pool.swap_exact_out(0, 1, PRECISION, MAX, sender=alice)
+    with chain.isolate():
+        pool.add_liquidity([PRECISION if i == 0 else 0 for i in range(n)], 0, sender=alice)
+    with chain.isolate():
+        pool.remove_liquidity_single(0, PRECISION, 0, sender=deployer)
+    with chain.isolate():
+        pool.update_rates([], sender=alice)
+    with chain.isolate():
+        pool.update_weights(sender=alice)
+
+    # cant unpause before pausing
+    with ape.reverts():
+        pool.unpause(sender=guardian)
+
+    # regular user cant pause pool
+    with ape.reverts():
+        pool.pause(sender=bob)
+    
+    # either management or guardian can pause
+    with chain.isolate():
+        pool.pause(sender=management)
+    
+    pool.pause(sender=guardian)
+    assert pool.paused()
+
+    # after pausing, none of these functions can be called
+    with ape.reverts():
+        pool.swap(0, 1, PRECISION, 0, sender=alice)
+    with ape.reverts():
+        pool.swap_exact_out(0, 1, PRECISION, MAX, sender=alice)
+    with ape.reverts():
+        pool.add_liquidity([PRECISION if i == 0 else 0 for i in range(n)], 0, sender=alice)
+    with ape.reverts():
+        pool.remove_liquidity_single(0, PRECISION, 0, sender=deployer)
+    with ape.reverts():
+        pool.update_rates([], sender=alice)
+    with ape.reverts():
+        pool.update_weights(sender=alice)
+
+    # but doing a balanced withdrawal is still possible
+    pool.remove_liquidity(PRECISION, [0 for _ in range(n)], sender=deployer)
+
+    # regular user cant unpause pool
+    with ape.reverts():
+        pool.unpause(sender=bob)
+
+    # either management or guardian can unpause
+    with chain.isolate():
+        pool.unpause(sender=management)
+    
+    pool.unpause(sender=guardian)
+    assert not pool.paused()
+
+def test_kill(project, deployer, alice, token):
+    management = deployer
+    guardian = alice
+
+    n = 4
+    weights = [PRECISION//n for _ in range(n)]
+    assets, provider = deploy_assets(project, deployer, n)
+    
+    amplification = calc_w_prod(weights) * 10
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], weights, sender=deployer)
+    pool.set_staking(deployer, sender=deployer)
+    pool.set_guardian(guardian, sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    amt = 100 * PRECISION
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt, sender=deployer)
+    pool.add_liquidity([amt for _ in range(n)], 0, deployer, sender=alice)
+
+    # pool cant be killed when its not paused
+    with ape.reverts():
+        pool.kill(sender=management)
+
+    pool.pause(sender=guardian)
+
+    # guardiant cant kill pool
+    with ape.reverts():
+        pool.kill(sender=guardian)
+
+    # management can kill pool
+    pool.kill(sender=management)
+
+    # once killed, no-one is able to unpause
+    with ape.reverts():
+        pool.unpause(sender=guardian)
+
+    with ape.reverts():
+        pool.unpause(sender=management)

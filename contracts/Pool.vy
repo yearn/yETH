@@ -638,6 +638,7 @@ def update_weights() -> bool:
     @return Boolean to indicate whether the
     @dev Will only update the weights if a ramp is active and at least the minimum time step has been reached
     """
+    assert not self.paused # dev: paused
     updated: bool = False
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
@@ -687,6 +688,8 @@ def weight_packed(_asset: uint256) -> uint256:
     @dev Does not take into account any active ramp
     """
     return self.weights[_asset]
+
+# PRIVILEGED FUNCTIONS
 
 @external
 def pause():
@@ -953,6 +956,8 @@ def set_guardian(_guardian: address):
     assert msg.sender == self.management or msg.sender == self.guardian
     self.guardian = _guardian
     log SetGuardian(msg.sender, _guardian)
+
+# INTERNAL FUNCTIONS
 
 @internal
 def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256):
