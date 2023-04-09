@@ -5,9 +5,7 @@
 - staked yETH (st-yETH): yETH that has been deposited into the staking contract. Stakers will effectively receive all yield and slashings from beacon chain
 - Management: trusted with privileged access for limited operations. Should eventually be replaced by a smart contract
 - Guardian: trusted with emergency privileges
-- Whitelister: trusted with privilege to whitelist new assets
 - Treasury: benefactor of performance fees
-
 
 ## Pool specification
 ### Normal operation
