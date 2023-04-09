@@ -29,15 +29,14 @@
 - If a synchronisation changes any rate, the new virtual balances are calculated and the invariant is used to calculate the new LP supply. The change in supply is minted to or burned from the staking contract
 - Any deposit or withdrawal of an asset will be preceded by a sychronisation of its rate
 - A rate is only allowed to increase at most 10% at once
-- Management can start a gradual weight change, as long as no weight change is active yet
+- Management can start a gradual amplification and weight change, as long as no change is active yet
 - Management can whitelist a new asset, which sets an initial weight, sets the rate provider and requires an initial deposit
+- New assets can only be whitelisted if no amplification or weight change is active
 - Management can update the rate provider for every whitelisted asset
 - Management can approve rate increases above 10%
 - Management can update the staking contract
 - Management can set the pool swap fee
 - Management can set the tolerance range of all assets
-- Management can ramp the pool amplification factor up or down
-- Management can ramp the weights of all assets up or down
 - Management can set the new management address
 - Management can set the new guardian address
 - Management can trigger pause mode
