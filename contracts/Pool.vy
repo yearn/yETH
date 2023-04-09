@@ -981,6 +981,11 @@ def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uin
         assert rate > 0 # dev: no rate
         if rate == prev_rate:
             continue
+
+        # cap upward rate movements to 10%
+        if rate > prev_rate * 11 / 10 and prev_rate > 0:
+            assert msg.sender == self.management # dev: rate increase cap
+
         self.rates[asset] = rate
         log RateUpdate(asset, rate)
 
