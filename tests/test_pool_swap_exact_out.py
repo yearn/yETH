@@ -46,7 +46,7 @@ def test_round_trip(alice, bob, weights, pool):
     assets[1].mint(alice, 2 * amt, sender=alice)
 
     # slippage check
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: slippage'):
         pool.swap_exact_out(1, 0, cost, amt, bob, sender=alice)
 
     amt2 = pool.swap_exact_out(1, 0, cost, MAX, bob, sender=alice).return_value
@@ -324,7 +324,7 @@ def test_lower_band(chain, deployer, alice, bob, weights, pool, estimator):
     # swapping wont work anymore
     # with ape.reverts(): # TODO
         # estimator.get_dx(0, 3, amt)
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: ratio below lower band'):
         pool.swap_exact_out(0, 3, amt, MAX, bob, sender=alice)
 
 def test_upper_band(chain, deployer, alice, bob, weights, pool, estimator):
@@ -356,5 +356,5 @@ def test_upper_band(chain, deployer, alice, bob, weights, pool, estimator):
     # swapping wont work anymore
     with ape.reverts():
         estimator.get_dx(0, 3, amt)
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: ratio above upper band'):
         pool.swap_exact_out(0, 3, amt, MAX, bob, sender=alice)

@@ -467,7 +467,7 @@ def _preview_redeem(_shares: uint256, _total_assets: uint256) -> uint256:
 @internal
 def _withdraw(_assets: uint256, _shares: uint256, _receiver: address, _owner: address):
     if _owner != msg.sender:
-        self.allowance[_owner][msg.sender] -= _shares
+        self.allowance[_owner][msg.sender] -= _shares # dev: allowance
     
     self.unlocked -= _assets
     self.known -= _assets

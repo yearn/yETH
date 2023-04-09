@@ -46,7 +46,7 @@ def test_round_trip(alice, bob, token, weights, pool):
     lp = token.balanceOf(bob)
 
     # slippage check
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: slippage'):
         pool.remove_liquidity_single(0, lp, amt, bob, sender=bob)    
 
     pool.remove_liquidity_single(0, lp, 0, bob, sender=bob)
@@ -323,7 +323,7 @@ def test_lower_band(chain, deployer, alice, bob, weights, pool, estimator):
     # withdrawing wont work anymore
     with ape.reverts():
         estimator.get_remove_single_lp(3, lp)
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: ratio below lower band'):
         pool.remove_liquidity_single(3, lp, 0, bob, sender=deployer)
 
 def test_upper_band(chain, deployer, alice, bob, weights, pool, estimator):
@@ -354,5 +354,5 @@ def test_upper_band(chain, deployer, alice, bob, weights, pool, estimator):
     # withdrawing wont work anymore
     with ape.reverts():
         estimator.get_remove_single_lp(3, lp)
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: ratio above upper band'):
         pool.remove_liquidity_single(3, lp, 0, bob, sender=deployer)

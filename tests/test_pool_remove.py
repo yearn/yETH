@@ -48,7 +48,7 @@ def test_round_trip(alice, bob, token, weights, pool, estimator):
 
     # slippage check
     for i in range(n):
-        with ape.reverts():
+        with ape.reverts(dev_message='dev: slippage'):
             pool.remove_liquidity(lp, [amts[i] if i == j else 0 for j in range(n)], bob, sender=alice)
 
     exp = estimator.get_remove_lp(lp)

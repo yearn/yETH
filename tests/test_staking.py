@@ -279,7 +279,7 @@ def test_reward_withdraw(chain, alice, bob, asset, staking):
         assert asset.balanceOf(bob) == deposit
     
     # cant withdraw someone else's assets without an allowance
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: allowance'):
         staking.withdraw(deposit, bob, alice, sender=bob)
     
     staking.approve(bob, MAX, sender=alice)

@@ -415,7 +415,7 @@ def test_pause(project, chain, deployer, alice, bob, token):
         pool.update_weights(sender=alice)
 
     # cant unpause before pausing
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: not paused'):
         pool.unpause(sender=guardian)
 
     # regular user cant pause pool
@@ -429,18 +429,21 @@ def test_pause(project, chain, deployer, alice, bob, token):
     pool.pause(sender=guardian)
     assert pool.paused()
 
+    with ape.reverts(dev_message='dev: already paused'):
+        pool.pause(sender=guardian)
+
     # after pausing, none of these functions can be called
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: paused'):
         pool.swap(0, 1, PRECISION, 0, sender=alice)
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: paused'):
         pool.swap_exact_out(0, 1, PRECISION, MAX, sender=alice)
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: paused'):
         pool.add_liquidity([PRECISION if i == 0 else 0 for i in range(n)], 0, sender=alice)
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: paused'):
         pool.remove_liquidity_single(0, PRECISION, 0, sender=deployer)
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: paused'):
         pool.update_rates([], sender=alice)
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: paused'):
         pool.update_weights(sender=alice)
 
     # but doing a balanced withdrawal is still possible
@@ -456,6 +459,9 @@ def test_pause(project, chain, deployer, alice, bob, token):
     
     pool.unpause(sender=guardian)
     assert not pool.paused()
+
+    # functions can be called again
+    pool.swap(0, 1, PRECISION, 0, sender=alice)
 
 def test_kill(project, deployer, alice, token):
     management = deployer
@@ -478,7 +484,7 @@ def test_kill(project, deployer, alice, token):
     pool.add_liquidity([amt for _ in range(n)], 0, deployer, sender=alice)
 
     # pool cant be killed when its not paused
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: not paused'):
         pool.kill(sender=management)
 
     pool.pause(sender=guardian)
@@ -492,11 +498,15 @@ def test_kill(project, deployer, alice, token):
     assert pool.paused()
     assert pool.killed()
 
+    # cant kill more than once
+    with ape.reverts(dev_message='dev: already killed'):
+        pool.kill(sender=management)
+
     # once killed, no-one is able to unpause
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: killed'):
         pool.unpause(sender=guardian)
 
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: killed'):
         pool.unpause(sender=management)
 
 def test_change_rate_provider(project, deployer, alice, token):
@@ -519,7 +529,7 @@ def test_change_rate_provider(project, deployer, alice, token):
 
     # rate provider must provide a rate
     assert provider2.rate(assets[0]) == 0
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: no rate'):
         pool.set_rate_provider(0, provider2, sender=deployer)
 
     provider2.set_rate(assets[0], PRECISION * 101 // 100, sender=deployer)

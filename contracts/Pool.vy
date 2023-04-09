@@ -271,7 +271,7 @@ def swap(
     self._check_bands(num_assets, prev_vby * PRECISION / prev_vb_sum, vby * PRECISION / vb_sum, weight_y)
 
     dy: uint256 = (prev_vby - vby) * PRECISION / self.rates[_j]
-    assert dy >= _min_dy
+    assert dy >= _min_dy # dev: slippage
 
     if dx_fee > 0:
         # add fee to pool
@@ -349,7 +349,7 @@ def swap_exact_out(
     dx_fee = dx * dx_fee / (PRECISION - dx_fee)
     dx += dx_fee
     vbx += dx_fee * self.rates[_i] / PRECISION
-    assert dx <= _max_dx
+    assert dx <= _max_dx # dev: slippage
 
     # update variables
     self.balances[_i] = vbx
@@ -697,7 +697,7 @@ def pause():
     @notice Pause the pool
     """
     assert msg.sender == self.management or msg.sender == self.guardian
-    assert not self.paused
+    assert not self.paused # dev: already paused
     self.paused = True
     log Pause(msg.sender)
 
@@ -707,7 +707,8 @@ def unpause():
     @notice Unpause the pool
     """
     assert msg.sender == self.management or msg.sender == self.guardian
-    assert self.paused and not self.killed
+    assert self.paused # dev: not paused
+    assert not self.killed # dev: killed
     self.paused = False
     log Unpause(msg.sender)
 
@@ -717,7 +718,8 @@ def kill():
     @notice Kill the pool
     """
     assert msg.sender == self.management
-    assert self.paused and not self.killed
+    assert self.paused # dev: not paused
+    assert not self.killed # dev: already killed
     self.killed = True
     log Kill()
 

@@ -36,7 +36,7 @@ def test_initial(alice, bob, token, weights, pool):
         amts.append(amt)
         asset.mint(alice, amt, sender=alice)
 
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: slippage'):
         # slippage protection
         pool.add_liquidity(amts, 2 * total, sender=alice)
 
@@ -304,7 +304,7 @@ def test_ramp_weight(chain, deployer, alice, bob, token, weights, pool, estimato
 
     weights2 = weights
     weights2[1] += PRECISION // 10
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: weights dont add up'):
         # weights have to sum up to 1
         pool.set_ramp(calc_w_prod(weights2), weights2, WEEK_LENGTH, sender=deployer)
     weights2[2] -= PRECISION // 10
@@ -469,5 +469,5 @@ def test_band(chain, deployer, alice, bob, weights, pool, estimator):
     # deposit wont work
     with ape.reverts():
         estimator.get_add_lp(amts)
-    with ape.reverts():
+    with ape.reverts(dev_message='dev: ratio above upper band'):
         pool.add_liquidity(amts, 0, bob, sender=alice)
