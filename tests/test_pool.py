@@ -489,6 +489,8 @@ def test_kill(project, deployer, alice, token):
 
     # management can kill pool
     pool.kill(sender=management)
+    assert pool.paused()
+    assert pool.killed()
 
     # once killed, no-one is able to unpause
     with ape.reverts():
