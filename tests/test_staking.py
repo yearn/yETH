@@ -113,12 +113,12 @@ def test_pending_reward(alice, asset, staking):
     asset.mint(alice, deposit, sender=alice)
     asset.approve(staking, MAX, sender=alice)
     staking.deposit(deposit, sender=alice)
-    assert staking.get_amounts() == (0, 0, deposit, 0, 0) # (pending, streaming, unlocked, unclaimed, delta)
+    assert staking.get_amounts() == (0, 0, deposit, 0, 0) # (pending, streaming, unlocked, fee shares, delta)
 
     # add reward
     asset.mint(staking, reward, sender=alice)
     assert staking.get_amounts() == (reward, 0, deposit, 0, reward)
-    assert staking.update_amounts(sender=alice).return_value == (reward, 0, deposit, 0)
+    assert staking.update_amounts(sender=alice).return_value == (reward, 0, deposit)
     assert staking.known() == reward + deposit
 
 def test_streaming_reward(chain, alice, asset, staking):
@@ -139,7 +139,7 @@ def test_streaming_reward(chain, alice, asset, staking):
     with chain.isolate():
         chain.mine()
         assert staking.get_amounts() == (0, reward, deposit, 0, 0)
-    assert staking.update_amounts(sender=alice).return_value == (0, reward, deposit, 0)
+    assert staking.update_amounts(sender=alice).return_value == (0, reward, deposit)
 
     # streaming is unlocked during the week
     ts += WEEK_LENGTH // 10
@@ -154,7 +154,7 @@ def test_streaming_reward(chain, alice, asset, staking):
         assert staking.previewMint(deposit) == unlocked
         assert staking.previewWithdraw(unlocked) == deposit
         assert staking.previewRedeem(deposit) == unlocked
-    assert staking.update_amounts(sender=alice).return_value == (0, reward * 9 // 10, unlocked, 0)
+    assert staking.update_amounts(sender=alice).return_value == (0, reward * 9 // 10, unlocked)
     assert staking.previewDeposit(unlocked) == deposit
     assert staking.previewMint(deposit) == unlocked
     assert staking.previewWithdraw(unlocked) == deposit
@@ -171,7 +171,7 @@ def test_streaming_reward(chain, alice, asset, staking):
         assert staking.previewMint(deposit) == unlocked
         assert staking.previewWithdraw(unlocked) == deposit
         assert staking.previewRedeem(deposit) == unlocked
-    assert staking.update_amounts(sender=alice).return_value == (0, 0, unlocked, 0)
+    assert staking.update_amounts(sender=alice).return_value == (0, 0, unlocked)
     assert staking.previewDeposit(unlocked) == deposit
     assert staking.previewMint(deposit) == unlocked
     assert staking.previewWithdraw(unlocked) == deposit
@@ -195,7 +195,7 @@ def test_streaming_reward_grace(chain, alice, asset, staking):
 
     with chain.isolate():
         chain.pending_timestamp = ts
-        assert staking.update_amounts(sender=alice).return_value == (0, reward, deposit, 0)
+        assert staking.update_amounts(sender=alice).return_value == (0, reward, deposit)
 
     # past the first day, rewards are counted as pending
     ts += DAY_LENGTH
@@ -227,7 +227,7 @@ def test_reward_split(chain, alice, asset, staking):
         # streaming = 7 days, but -2 because we are 2 days into current week
         # unlocked = remaining 13 days
         assert staking.get_amounts() == (2 * part, 5 * part, deposit + 13 * part, 0, reward)
-    assert staking.update_amounts(sender=alice).return_value == (2 * part, 5 * part, deposit + 13 * part, 0)
+    assert staking.update_amounts(sender=alice).return_value == (2 * part, 5 * part, deposit + 13 * part)
     assert staking.known() == reward + deposit
 
 def test_reward_multiple_deposit(chain, alice, bob, asset, staking):
