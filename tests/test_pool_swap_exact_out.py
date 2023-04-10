@@ -322,8 +322,8 @@ def test_lower_band(chain, deployer, alice, bob, weights, pool, estimator):
     pool.set_weight_bands([3], [PRECISION // 100], [PRECISION], sender=deployer)
 
     # swapping wont work anymore
-    # with ape.reverts(): # TODO
-        # estimator.get_dx(0, 3, amt)
+    with ape.reverts():
+        estimator.get_dx(0, 3, amt)
     with ape.reverts(dev_message='dev: ratio below lower band'):
         pool.swap_exact_out(0, 3, amt, MAX, bob, sender=alice)
 

@@ -201,6 +201,7 @@ def get_dx(_i: uint256, _j: uint256, _dy: uint256) -> uint256:
     dx_fee = dx * dx_fee / (PRECISION - dx_fee)
     dx += dx_fee
     vb_x += dx_fee * rates[0] / PRECISION
+    vb_sum += vb_x
 
     # check bands
     self._check_bands(prev_vb_x * PRECISION / prev_vb_sum, vb_x * PRECISION / vb_sum, packed_weights[_i])
