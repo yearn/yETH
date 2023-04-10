@@ -286,3 +286,19 @@ def test_reward_withdraw(chain, alice, bob, asset, staking):
     staking.withdraw(deposit, bob, alice, sender=bob)
     assert staking.balanceOf(alice) == deposit * 3 // 4
     assert asset.balanceOf(bob) == deposit
+
+def test_rescue(project, deployer, alice, asset, staking):
+    asset.mint(alice, PRECISION, sender=alice)
+    asset.approve(staking, MAX, sender=alice)
+    staking.deposit(PRECISION, sender=alice)
+
+    # cant 'rescue' vault asset
+    with ape.reverts(dev_message='dev: cant rescue vault asset'):
+        staking.rescue(asset, alice, sender=deployer)
+
+    random = project.MockToken.deploy(sender=deployer)
+    random.mint(staking, PRECISION, sender=deployer)
+
+    # can rescue anything else
+    staking.rescue(random, alice, sender=deployer)
+    assert random.balanceOf(alice) == PRECISION

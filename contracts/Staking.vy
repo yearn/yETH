@@ -393,6 +393,13 @@ def known() -> uint256:
     return self.pending + self.streaming + self.unlocked
 
 @external
+def rescue(_token: address, _receiver: address):
+    assert msg.sender == self.management
+    assert _token != asset # dev: cant rescue vault asset
+    amount: uint256 = ERC20(_token).balanceOf(self)
+    assert ERC20(_token).transfer(_receiver, amount, default_return_value=True)
+
+@external
 def set_performance_fee_rate(_fee_rate: uint256):
     """
     @notice Set the performance fee rate

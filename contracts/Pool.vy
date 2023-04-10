@@ -866,6 +866,42 @@ def add_asset(
     log AddAsset(prev_num_assets, _asset, _rate_provider, rate, _weight, _amount)
 
 @external
+def rescue(_token: address, _receiver: address):
+    """
+    @notice Rescue tokens from this contract
+    @param _token The token to be rescued
+    @param _receiver Receiver of rescued tokens
+    @dev Can't be used to rescue pool assets
+    """
+    assert msg.sender == self.management
+    num_assets: uint256 = self.num_assets
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
+            break
+        assert _token != self.assets[asset] # dev: cant rescue pool asset
+    amount: uint256 = ERC20(_token).balanceOf(self)
+    assert ERC20(_token).transfer(_receiver, amount, default_return_value=True)
+
+@external
+def skim(_asset: uint256, _receiver: address):
+    """
+    @notice Skim surplus of a pool asset
+    @param _asset Index of the asset
+    @param _receiver Receiver of skimmed tokens
+    """
+    assert msg.sender == self.management
+    assert _asset < self.num_assets # dev: index out of bounds
+    vb: uint256 = 0
+    rate: uint256 = 0
+    packed_weight: uint256 = 0
+    vb, rate, packed_weight = self._unpack_vb(self.packed_vbs[_asset])
+    expected: uint256 = vb * PRECISION / rate + 1
+    token_: address = self.assets[_asset]
+    actual: uint256 = ERC20(token_).balanceOf(self)
+    assert actual > expected # dev: no surplus
+    assert ERC20(token_).transfer(_receiver, actual - expected, default_return_value=True)
+
+@external
 def set_swap_fee_rate(_fee_rate: uint256):
     """
     @notice Set the swap fee rate

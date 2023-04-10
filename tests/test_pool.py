@@ -565,3 +565,60 @@ def test_rate_increase_cap(project, deployer, alice, token):
 
     # management approves rate increase
     pool.update_rates([0], sender=deployer)
+
+def test_rescue(project, deployer, alice, token):
+    n = 4
+    weights = [PRECISION//n for _ in range(n)]
+    assets, provider = deploy_assets(project, deployer, n)
+    
+    amplification = calc_w_prod(weights) * 10
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], weights, sender=deployer)
+    pool.set_staking(deployer, sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    amt = 100 * PRECISION
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt, sender=deployer)
+    pool.add_liquidity([amt for _ in range(n)], 0, deployer, sender=alice)
+
+    # cant 'rescue' a pool asset
+    with ape.reverts(dev_message='dev: cant rescue pool asset'):
+        pool.rescue(assets[1], alice, sender=deployer)
+
+    random = project.MockToken.deploy(sender=deployer)
+    random.mint(pool, PRECISION, sender=deployer)
+
+    # can rescue anything else
+    pool.rescue(random, alice, sender=deployer)
+    assert random.balanceOf(alice) == PRECISION
+
+    # including the lp token
+    token.transfer(pool, PRECISION, sender=deployer)
+    pool.rescue(token, alice, sender=deployer)
+    assert token.balanceOf(alice) == PRECISION
+
+def test_skim(project, deployer, alice, token):
+    n = 4
+    weights = [PRECISION//n for _ in range(n)]
+    assets, provider = deploy_assets(project, deployer, n)
+    
+    amplification = calc_w_prod(weights) * 10
+    pool = project.Pool.deploy(token, amplification, assets, [provider for _ in range(n)], weights, sender=deployer)
+    pool.set_staking(deployer, sender=deployer)
+    token.set_minter(pool, sender=deployer)
+
+    amt = 100 * PRECISION
+    for asset in assets:
+        asset.approve(pool, MAX, sender=alice)
+        asset.mint(alice, amt, sender=deployer)
+    pool.add_liquidity([amt for _ in range(n)], 0, deployer, sender=alice)
+
+    # cant skim when there's nothing to skim
+    with ape.reverts(dev_message='dev: no surplus'):
+        pool.skim(1, alice, sender=deployer)
+
+    # can skim when someone accidentally sent tokens to pool directly
+    assets[1].mint(pool, PRECISION, sender=deployer)
+    pool.skim(1, alice, sender=deployer)
+    assert assets[1].balanceOf(alice) == PRECISION - 1
