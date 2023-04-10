@@ -6,15 +6,15 @@ interface Pool:
     def num_assets() -> uint256: view
     def assets(_i: uint256) -> address: view
     def rate_providers(_i: uint256) -> address: view
-    def balances(_i: uint256) -> uint256: view
-    def rates(_i: uint256) -> uint256: view
-    def weight_packed(_i: uint256) -> uint256: view
+    def virtual_balance(_i: uint256) -> uint256: view
+    def rate(_i: uint256) -> uint256: view
+    def weight(_i: uint256) -> (uint256, uint256, uint256, uint256): view
+    def packed_weight(_i: uint256) -> uint256: view
     def swap_fee_rate() -> uint256: view
     def ramp_step() -> uint256: view
     def ramp_last_time() -> uint256: view
     def ramp_stop_time() -> uint256: view
     def target_amplification() -> uint256: view
-    def target_weight(_i: uint256) -> uint256: view
     def vb_prod_sum() -> (uint256, uint256): view
 
 interface RateProvider:
@@ -24,9 +24,12 @@ pool: public(immutable(Pool))
 
 PRECISION: constant(uint256) = 1_000_000_000_000_000_000
 MAX_NUM_ASSETS: constant(uint256) = 32
-WEIGHT_MASK: constant(uint256) = 2**85 - 1
-LOWER_BAND_SHIFT: constant(int128) = -85
-UPPER_BAND_SHIFT: constant(int128) = -170
+
+WEIGHT_SCALE: constant(uint256) = 1_000_000_000_000
+WEIGHT_MASK: constant(uint256) = 2**20 - 1
+TARGET_WEIGHT_SHIFT: constant(int128) = -20
+LOWER_BAND_SHIFT: constant(int128) = -40
+UPPER_BAND_SHIFT: constant(int128) = -60
 
 # powers of 10
 E3: constant(int256)               = 1_000
@@ -82,10 +85,10 @@ def get_effective_amplification() -> uint256:
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     amplification: uint256 = 0
-    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
+    packed_weights: DynArray[uint256, MAX_NUM_ASSETS] = []
     updated: bool = False
     vb_prod, vb_sum = pool.vb_prod_sum()
-    amplification, vb_prod, weights, updated = self._get_weights(vb_prod, vb_sum)
+    amplification, vb_prod, packed_weights, updated = self._get_packed_weights(vb_prod, vb_sum)
 
     num_assets: uint256 = pool.num_assets()
     for asset in range(MAX_NUM_ASSETS):
@@ -93,11 +96,11 @@ def get_effective_amplification() -> uint256:
             break
         weight: uint256 = 0
         if updated:
-            weight = weights[asset] & WEIGHT_MASK
+            weight = packed_weights[asset]
         else:
-            weight = pool.weight_packed(asset) & WEIGHT_MASK
-
-        amplification = amplification * self._pow_down(weight / num_assets, weight) / PRECISION
+            weight = pool.packed_weight(asset)
+        weight = self._unpack_wn(weight, 1)
+        amplification = amplification * self._pow_down(weight, weight * num_assets) / PRECISION
     return amplification
 
 @external
@@ -113,15 +116,16 @@ def get_effective_target_amplification() -> uint256:
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
-        weight: uint256 = pool.target_weight(asset)
+        weight: uint256 = unsafe_mul(shift(pool.packed_weight(asset), TARGET_WEIGHT_SHIFT) & WEIGHT_MASK, WEIGHT_SCALE)
         amplification = amplification * self._pow_down(weight, weight * num_assets) / PRECISION
     return amplification
 
 @external
 @view
 def get_dy(_i: uint256, _j: uint256, _dx: uint256) -> uint256:
+    num_assets: uint256 = pool.num_assets()
     assert _i != _j # dev: same input and output asset
-    assert _i < MAX_NUM_ASSETS and _j < MAX_NUM_ASSETS # dev: index out of bounds
+    assert _i < num_assets and _j < num_assets # dev: index out of bounds
     assert _dx > 0 # dev: zero amount
 
     # update rates for from and to assets
@@ -130,70 +134,77 @@ def get_dy(_i: uint256, _j: uint256, _dx: uint256) -> uint256:
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     vb_prod, vb_sum = pool.vb_prod_sum()
-    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
+    packed_weights: DynArray[uint256, MAX_NUM_ASSETS] = []
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-    supply, amplification, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), vb_prod, vb_sum)
+    supply, amplification, vb_prod, vb_sum, packed_weights, rates = self._get_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), vb_prod, vb_sum)
     prev_vb_sum: uint256 = vb_sum
 
-    prev_vbx: uint256 = pool.balances(_i) * rates[0] / pool.rates(_i)
-    prev_vby: uint256 = pool.balances(_j) * rates[1] / pool.rates(_j)
+    prev_vb_x: uint256 = pool.virtual_balance(_i) * rates[0] / pool.rate(_i)
+    wn_x: uint256 = self._unpack_wn(packed_weights[_i], num_assets)
+
+    prev_vb_y: uint256 = pool.virtual_balance(_j) * rates[1] / pool.rate(_j)
+    wn_y: uint256 = self._unpack_wn(packed_weights[_j], num_assets)
 
     dx_fee: uint256 = _dx * pool.swap_fee_rate() / PRECISION
-    dvbx: uint256 = (_dx - dx_fee) * rates[0] / PRECISION
-    vbx: uint256 = prev_vbx + dvbx
+    dvb_x: uint256 = (_dx - dx_fee) * rates[0] / PRECISION
+    vb_x: uint256 = prev_vb_x + dvb_x
     
     # update x_i and remove x_j from variables
-    vb_prod = vb_prod * self._pow_up(prev_vby, weights[_j] & WEIGHT_MASK) / self._pow_down(vbx * PRECISION / prev_vbx, weights[_i] & WEIGHT_MASK)
-    vb_sum = vb_sum + dvbx - prev_vby
+    vb_prod = vb_prod * self._pow_up(prev_vb_y, wn_y) / self._pow_down(vb_x * PRECISION / prev_vb_x, wn_x)
+    vb_sum = vb_sum + dvb_x - prev_vb_y
 
     # calulate new balance of out token
-    vby: uint256 = self._calc_vb(weights[_j], prev_vby, supply, amplification, vb_prod, vb_sum)
-    vb_sum += vby + dx_fee * rates[0] / PRECISION
+    vb_y: uint256 = self._calc_vb(wn_y, prev_vb_y, supply, amplification, vb_prod, vb_sum)
+    vb_sum += vb_y + dx_fee * rates[0] / PRECISION
 
     # check bands
-    num_assets: uint256 = pool.num_assets()
-    self._check_bands(num_assets, prev_vbx * PRECISION / prev_vb_sum, vbx * PRECISION / vb_sum, weights[_i])
-    self._check_bands(num_assets, prev_vby * PRECISION / prev_vb_sum, vby * PRECISION / vb_sum, weights[_j])
+    self._check_bands(prev_vb_x * PRECISION / prev_vb_sum, vb_x * PRECISION / vb_sum, packed_weights[_i])
+    self._check_bands(prev_vb_y * PRECISION / prev_vb_sum, vb_y * PRECISION / vb_sum, packed_weights[_j])
 
-    return (prev_vby - vby) * PRECISION / rates[1]
+    return (prev_vb_y - vb_y) * PRECISION / rates[1]
 
 @external
 @view
 def get_dx(_i: uint256, _j: uint256, _dy: uint256) -> uint256:
+    num_assets: uint256 = pool.num_assets()
+    assert _i != _j # dev: same input and output asset
+    assert _i < num_assets and _j < num_assets # dev: index out of bounds
+    assert _dy > 0 # dev: zero amount
+    
     # update rates for from and to assets
-    # reverts if either is not part of the pool
     supply: uint256 = 0
     amplification: uint256 = 0
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     vb_prod, vb_sum = pool.vb_prod_sum()
-    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
+    packed_weights: DynArray[uint256, MAX_NUM_ASSETS] = []
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-    supply, amplification, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), vb_prod, vb_sum)
+    supply, amplification, vb_prod, vb_sum, packed_weights, rates = self._get_rates(unsafe_add(_i, 1) | shift(unsafe_add(_j, 1), 8), vb_prod, vb_sum)
     prev_vb_sum: uint256 = vb_sum
 
-    prev_vbx: uint256 = pool.balances(_i) * rates[0] / pool.rates(_i)
-    prev_vby: uint256 = pool.balances(_j) * rates[1] / pool.rates(_j)
+    prev_vb_x: uint256 = pool.virtual_balance(_i) * rates[0] / pool.rate(_i)
+    wn_x: uint256 = self._unpack_wn(packed_weights[_i], num_assets)
+    prev_vb_y: uint256 = pool.virtual_balance(_j) * rates[1] / pool.rate(_j)
+    wn_y: uint256 = self._unpack_wn(packed_weights[_j], num_assets)
 
-    dvby: uint256 = _dy * rates[1] / PRECISION
-    vby: uint256 = prev_vby - dvby
+    dvb_y: uint256 = _dy * rates[1] / PRECISION
+    vb_y: uint256 = prev_vb_y - dvb_y
 
     # update x_j and remove x_i from variables
-    vb_prod = vb_prod * self._pow_up(prev_vbx, weights[_i] & WEIGHT_MASK) / self._pow_down(vby * PRECISION / prev_vby, weights[_j] & WEIGHT_MASK)
-    vb_sum = vb_sum - dvby - prev_vbx
+    vb_prod = vb_prod * self._pow_up(prev_vb_x, wn_x) / self._pow_down(vb_y * PRECISION / prev_vb_y, wn_y)
+    vb_sum = vb_sum - dvb_y - prev_vb_x
 
     # calulate new balance of in token
-    vbx: uint256 = self._calc_vb(weights[_i], prev_vbx, supply, amplification, vb_prod, vb_sum)
-    dx: uint256 = (vbx - prev_vbx) * PRECISION / rates[0]
+    vb_x: uint256 = self._calc_vb(wn_x, prev_vb_x, supply, amplification, vb_prod, vb_sum)
+    dx: uint256 = (vb_x - prev_vb_x) * PRECISION / rates[0]
     dx_fee: uint256 = pool.swap_fee_rate()
     dx_fee = dx * dx_fee / (PRECISION - dx_fee)
     dx += dx_fee
-    vbx += dx_fee * rates[0] / PRECISION
+    vb_x += dx_fee * rates[0] / PRECISION
 
     # check bands
-    num_assets: uint256 = pool.num_assets()
-    self._check_bands(num_assets, prev_vbx * PRECISION / prev_vb_sum, vbx * PRECISION / vb_sum, weights[_i])
-    self._check_bands(num_assets, prev_vby * PRECISION / prev_vb_sum, vby * PRECISION / vb_sum, weights[_j])
+    self._check_bands(prev_vb_x * PRECISION / prev_vb_sum, vb_x * PRECISION / vb_sum, packed_weights[_i])
+    self._check_bands(prev_vb_y * PRECISION / prev_vb_sum, vb_y * PRECISION / vb_sum, packed_weights[_j])
     
     return dx
 
@@ -220,7 +231,7 @@ def get_add_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
             assets = assets | shift(unsafe_add(asset, 1), sh)
             sh = unsafe_add(sh, 8)
             if vb_sum > 0 and lowest > 0:
-                lowest = min(_amounts[asset] * pool.rates(asset) / pool.balances(asset), lowest)
+                lowest = min(_amounts[asset] * pool.rate(asset) / pool.virtual_balance(asset), lowest)
         else:
             lowest = 0
     assert sh > 0 # dev: need to deposit at least one asset
@@ -228,9 +239,9 @@ def get_add_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
     # update rates
     prev_supply: uint256 = 0
     amplification: uint256 = 0
-    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
+    packed_weights: DynArray[uint256, MAX_NUM_ASSETS] = []
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-    prev_supply, amplification, vb_prod, vb_sum, weights, rates = self._get_rates(assets, vb_prod, vb_sum)
+    prev_supply, amplification, vb_prod, vb_sum, packed_weights, rates = self._get_rates(assets, vb_prod, vb_sum)
 
     vb_prod_final: uint256 = vb_prod
     vb_sum_final: uint256 = vb_sum
@@ -245,23 +256,23 @@ def get_add_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
         amount: uint256 = _amounts[asset]
         if amount == 0:
             continue
-        prev_vb: uint256 = pool.balances(asset) * rates[j] / pool.rates(asset)
+        prev_vb: uint256 = pool.virtual_balance(asset) * rates[j] / pool.rate(asset)
 
         dvb: uint256 = amount * rates[j] / PRECISION
         vb: uint256 = prev_vb + dvb
         balances.append(vb)
 
         if prev_supply > 0:
-            weight: uint256 = weights[asset] & WEIGHT_MASK
+            wn: uint256 = self._unpack_wn(packed_weights[asset], num_assets)
 
             # update product and sum of virtual balances
-            vb_prod_final = vb_prod_final * self._pow_up(prev_vb * PRECISION / vb, weight) / PRECISION
+            vb_prod_final = vb_prod_final * self._pow_up(prev_vb * PRECISION / vb, wn) / PRECISION
             # the `D^n` factor will be updated in `_calc_supply()`
             vb_sum_final += dvb
 
             # remove fees from balance and recalculate sum and product
             fee: uint256 = (dvb - prev_vb * lowest / PRECISION) * fee_rate / PRECISION
-            vb_prod = vb_prod * self._pow_up(prev_vb * PRECISION / (vb - fee), weight) / PRECISION
+            vb_prod = vb_prod * self._pow_up(prev_vb * PRECISION / (vb - fee), wn) / PRECISION
             vb_sum += dvb - fee
         j = unsafe_add(j, 1)
 
@@ -272,7 +283,7 @@ def get_add_lp(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
             break
         if _amounts[asset] == 0:
             continue
-        self._check_bands(num_assets, pool.balances(asset) * rates[j] / pool.rates(asset) * PRECISION / prev_vb_sum, balances[j] * PRECISION / vb_sum_final, weights[asset])
+        self._check_bands(pool.virtual_balance(asset) * rates[j] / pool.rate(asset) * PRECISION / prev_vb_sum, balances[j] * PRECISION / vb_sum_final, packed_weights[asset])
         j = unsafe_add(j, 1)
 
     supply: uint256 = 0
@@ -289,9 +300,9 @@ def get_remove_lp(_lp_amount: uint256) -> DynArray[uint256, MAX_NUM_ASSETS]:
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
-        prev_bal: uint256 = pool.balances(asset)
+        prev_bal: uint256 = pool.virtual_balance(asset)
         dbal: uint256 = prev_bal * _lp_amount / prev_supply
-        amount: uint256 = dbal * PRECISION / pool.rates(asset)
+        amount: uint256 = dbal * PRECISION / pool.rate(asset)
         amounts.append(amount)
 
     return amounts
@@ -299,7 +310,8 @@ def get_remove_lp(_lp_amount: uint256) -> DynArray[uint256, MAX_NUM_ASSETS]:
 @external
 @view
 def get_remove_single_lp(_asset: uint256, _lp_amount: uint256) -> uint256:
-    assert _asset < MAX_NUM_ASSETS # dev: index out of bounds
+    num_assets: uint256 = pool.num_assets()
+    assert _asset < num_assets # dev: index out of bounds
 
     # update rate
     prev_supply: uint256 = 0
@@ -307,18 +319,17 @@ def get_remove_single_lp(_asset: uint256, _lp_amount: uint256) -> uint256:
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     vb_prod, vb_sum = pool.vb_prod_sum()
-    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
+    packed_weights: DynArray[uint256, MAX_NUM_ASSETS] = []
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
-    prev_supply, amplification, vb_prod, vb_sum, weights, rates = self._get_rates(unsafe_add(_asset, 1), vb_prod, vb_sum)
+    prev_supply, amplification, vb_prod, vb_sum, packed_weights, rates = self._get_rates(unsafe_add(_asset, 1), vb_prod, vb_sum)
     prev_vb_sum: uint256 = vb_sum
 
     supply: uint256 = prev_supply - _lp_amount
-    prev_vb: uint256 = pool.balances(_asset) * rates[0] / pool.rates(_asset)
-    weight: uint256 = weights[_asset] & WEIGHT_MASK
+    prev_vb: uint256 = pool.virtual_balance(_asset) * rates[0] / pool.rate(_asset)
+    wn: uint256 = self._unpack_wn(packed_weights[_asset], num_assets)
 
     # update variables
-    num_assets: uint256 = pool.num_assets()
-    vb_prod = vb_prod * self._pow_up(prev_vb, weight) / PRECISION
+    vb_prod = vb_prod * self._pow_up(prev_vb, wn) / PRECISION
     for i in range(MAX_NUM_ASSETS):
         if i == num_assets:
             break
@@ -326,7 +337,7 @@ def get_remove_single_lp(_asset: uint256, _lp_amount: uint256) -> uint256:
     vb_sum = vb_sum - prev_vb
 
     # calculate new balance of asset
-    vb: uint256 = self._calc_vb(weight, prev_vb, supply, amplification, vb_prod, vb_sum)
+    vb: uint256 = self._calc_vb(wn, prev_vb, supply, amplification, vb_prod, vb_sum)
     dvb: uint256 = prev_vb - vb
     fee: uint256 = dvb * pool.swap_fee_rate() / 2 / PRECISION
     dvb -= fee
@@ -338,29 +349,31 @@ def get_remove_single_lp(_asset: uint256, _lp_amount: uint256) -> uint256:
         if asset == num_assets:
             break
         if asset == _asset:
-            self._check_bands(num_assets, prev_vb * PRECISION / prev_vb_sum, vb * PRECISION / vb_sum, weights[asset])
+            self._check_bands(prev_vb * PRECISION / prev_vb_sum, vb * PRECISION / vb_sum, packed_weights[asset])
         else:
-            bal: uint256 = pool.balances(asset)
-            self._check_bands(num_assets, bal * PRECISION / prev_vb_sum, bal * PRECISION / vb_sum, weights[asset])
+            bal: uint256 = pool.virtual_balance(asset)
+            self._check_bands(bal * PRECISION / prev_vb_sum, bal * PRECISION / vb_sum, packed_weights[asset])
 
     return dx
 
 @internal
 @view
 def _get_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint256, uint256, DynArray[uint256, MAX_NUM_ASSETS], DynArray[uint256, MAX_NUM_ASSETS]):
-    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
+    packed_weights: DynArray[uint256, MAX_NUM_ASSETS] = []
     rates: DynArray[uint256, MAX_NUM_ASSETS] = []
 
     amplification: uint256 = 0
     vb_prod: uint256 = 0
     vb_sum: uint256 = _vb_sum
     updated: bool = False
-    amplification, vb_prod, weights, updated = self._get_weights(_vb_prod, _vb_sum)
+    amplification, vb_prod, packed_weights, updated = self._get_packed_weights(_vb_prod, _vb_sum)
     num_assets: uint256 = pool.num_assets()
 
     if not updated:
         for asset in range(MAX_NUM_ASSETS):
-            weights.append(pool.weight_packed(asset))
+            if asset == num_assets:
+                break
+            packed_weights.append(pool.packed_weight(asset))
 
     for i in range(MAX_NUM_ASSETS):
         asset: uint256 = shift(_assets, unsafe_mul(-8, convert(i, int128))) & 255
@@ -368,7 +381,7 @@ def _get_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint25
             break
         asset = unsafe_sub(asset, 1)
         provider: address = pool.rate_providers(asset)
-        prev_rate: uint256 = pool.rates(asset)
+        prev_rate: uint256 = pool.rate(asset)
         rate: uint256 = RateProvider(provider).rate(pool.assets(asset))
         assert rate > 0 # dev: no rate
         rates.append(rate)
@@ -378,27 +391,28 @@ def _get_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint25
 
         if prev_rate > 0 and vb_sum > 0:
             # factor out old rate and factor in new
-            vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, weights[asset] & WEIGHT_MASK) / PRECISION
+            wn: uint256 = self._unpack_wn(packed_weights[asset], num_assets)
+            vb_prod = vb_prod * self._pow_up(prev_rate * PRECISION / rate, wn) / PRECISION
 
-            prev_bal: uint256 = pool.balances(asset)
+            prev_bal: uint256 = pool.virtual_balance(asset)
             bal: uint256 = prev_bal * rate / prev_rate
             vb_sum = vb_sum + bal - prev_bal
 
     if not updated and vb_prod == _vb_prod and vb_sum == _vb_sum:
-        return pool.supply(), amplification, vb_prod, vb_sum, weights, rates
+        return pool.supply(), amplification, vb_prod, vb_sum, packed_weights, rates
     
     supply: uint256 = 0
     supply, vb_prod = self._calc_supply(num_assets, pool.supply(), amplification, vb_prod, vb_sum, True)
-    return supply, amplification, vb_prod, vb_sum, weights, rates
+    return supply, amplification, vb_prod, vb_sum, packed_weights, rates
 
 @internal
 @view
-def _get_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, DynArray[uint256, MAX_NUM_ASSETS], bool):
-    weights: DynArray[uint256, MAX_NUM_ASSETS] = []
+def _get_packed_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, DynArray[uint256, MAX_NUM_ASSETS], bool):
+    packed_weights: DynArray[uint256, MAX_NUM_ASSETS] = []
     span: uint256 = pool.ramp_last_time()
     duration: uint256 = pool.ramp_stop_time()
     if span == 0 or span > block.timestamp or (block.timestamp - span < pool.ramp_step() and duration > block.timestamp):
-        return pool.amplification(), _vb_prod, weights, False
+        return pool.amplification(), _vb_prod, packed_weights, False
 
     if block.timestamp < duration:
         # ramp in progress
@@ -431,8 +445,7 @@ def _get_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, DynA
     for asset in range(MAX_NUM_ASSETS):
         if asset == num_assets:
             break
-        current, lower, upper = self._unpack_weight(pool.weight_packed(asset))
-        target = pool.target_weight(asset) * num_assets
+        current, target, lower, upper = pool.weight(asset)
         if duration == 0:
             current = target
         else:
@@ -440,31 +453,30 @@ def _get_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, DynA
                 current -= (current - target) * span / duration
             else:
                 current += (target - current) * span / duration
-        weights.append(self._pack_weight(current, lower, upper))
+        packed_weights.append(self._pack_weight(current, target, lower, upper))
         if _vb_sum > 0:
-            vb_prod = unsafe_div(unsafe_mul(vb_prod, self._pow_down(unsafe_div(unsafe_mul(supply, unsafe_div(current, num_assets)), pool.balances(asset)), current)), PRECISION)
+            vb_prod = unsafe_div(unsafe_mul(vb_prod, self._pow_down(unsafe_div(unsafe_mul(supply, current), pool.virtual_balance(asset)), unsafe_mul(current, num_assets))), PRECISION)
 
-    return amplification, vb_prod, weights, True
+    return amplification, vb_prod, packed_weights, True
 
 @internal
 @pure
-def _check_bands(_num_assets: uint256, _prev_ratio: uint256, _ratio: uint256, _weight: uint256):
-    ratio: uint256 = unsafe_mul(_ratio, _num_assets)
-    weight: uint256 = _weight & WEIGHT_MASK
+def _check_bands(_prev_ratio: uint256, _ratio: uint256, _packed_weight: uint256):
+    weight: uint256 = unsafe_mul(_packed_weight & WEIGHT_MASK, WEIGHT_SCALE)
 
     # lower limit check
-    limit: uint256 = shift(_weight, LOWER_BAND_SHIFT) & WEIGHT_MASK
+    limit: uint256 = unsafe_mul(shift(_packed_weight, LOWER_BAND_SHIFT) & WEIGHT_MASK, WEIGHT_SCALE)
     if limit > weight:
         limit = 0
     else:
         limit = unsafe_sub(weight, limit)
-    if ratio < limit:
+    if _ratio < limit:
         assert _ratio > _prev_ratio # dev: ratio below lower band
         return
 
     # upper limit check
-    limit = min(unsafe_add(weight, shift(_weight, UPPER_BAND_SHIFT)), unsafe_mul(_num_assets, PRECISION))
-    if ratio > limit:
+    limit = min(unsafe_add(weight, unsafe_mul(shift(_packed_weight, UPPER_BAND_SHIFT), WEIGHT_SCALE)), PRECISION)
+    if _ratio > limit:
         assert _ratio < _prev_ratio # dev: ratio above upper band
 
 @internal
@@ -506,7 +518,7 @@ def _calc_supply(_num_assets: uint256, _supply: uint256, _amplification: uint256
 
 @internal
 @pure
-def _calc_vb(_weight: uint256, _y: uint256, _supply: uint256, _amplification: uint256, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
+def _calc_vb(_wn: uint256, _y: uint256, _supply: uint256, _amplification: uint256, _vb_prod: uint256, _vb_sum: uint256) -> uint256:
     # y = x_j, sum' = sum(x_i, i != j), prod' = prod(x_i^w_i, i != j)
     # w = product(w_i), v_i = w_i n, f_i = 1/v_i
     # Iteratively find root of g(y) using Newton's method
@@ -519,12 +531,11 @@ def _calc_vb(_weight: uint256, _y: uint256, _supply: uint256, _amplification: ui
     b: uint256 = d * PRECISION / _amplification # actually b + D
     c: uint256 = _vb_prod * b / PRECISION
     b += _vb_sum
-    v: uint256 = _weight & WEIGHT_MASK
-    f: uint256 = PRECISION * PRECISION / v
+    f: uint256 = PRECISION * PRECISION / _wn
 
     y: uint256 = _y
     for _ in range(255):
-        yp: uint256 = (y + b + d * f / PRECISION + c * f / self._pow_up(y, v) - b * f / PRECISION - d) * y / (f * y / PRECISION + y + b - d)
+        yp: uint256 = (y + b + d * f / PRECISION + c * f / self._pow_up(y, _wn) - b * f / PRECISION - d) * y / (f * y / PRECISION + y + b - d)
         if yp >= y:
             if (yp - y) * PRECISION / y <= MAX_POW_REL_ERR:
                 yp += yp * MAX_POW_REL_ERR / PRECISION
@@ -539,13 +550,18 @@ def _calc_vb(_weight: uint256, _y: uint256, _supply: uint256, _amplification: ui
 
 @internal
 @pure
-def _pack_weight(_weight: uint256, _lower: uint256, _upper: uint256) -> uint256:
-    return _weight | shift(_lower, -LOWER_BAND_SHIFT) | shift(_upper, -UPPER_BAND_SHIFT)
+def _pack_weight(_weight: uint256, _target: uint256, _lower: uint256, _upper: uint256) -> uint256:
+    return unsafe_div(_weight, WEIGHT_SCALE) | shift(unsafe_div(_target, WEIGHT_SCALE), -TARGET_WEIGHT_SHIFT) | shift(unsafe_div(_lower, WEIGHT_SCALE), -LOWER_BAND_SHIFT) | shift(unsafe_div(_upper, WEIGHT_SCALE), -UPPER_BAND_SHIFT)
 
 @internal
 @pure
-def _unpack_weight(_packed: uint256) -> (uint256, uint256, uint256):
-    return _packed & WEIGHT_MASK, shift(_packed, LOWER_BAND_SHIFT) & WEIGHT_MASK, shift(_packed, UPPER_BAND_SHIFT)
+def _unpack_weight(_packed: uint256) -> (uint256, uint256, uint256, uint256):
+    return unsafe_mul(_packed & WEIGHT_MASK, WEIGHT_SCALE), unsafe_mul(shift(_packed, TARGET_WEIGHT_SHIFT) & WEIGHT_MASK, WEIGHT_SCALE), unsafe_mul(shift(_packed, LOWER_BAND_SHIFT) & WEIGHT_MASK, WEIGHT_SCALE), unsafe_mul(shift(_packed, UPPER_BAND_SHIFT), WEIGHT_SCALE)
+
+@internal
+@pure
+def _unpack_wn(_packed: uint256, _num_assets: uint256) -> uint256:
+    return unsafe_mul(unsafe_mul(_packed & WEIGHT_MASK, WEIGHT_SCALE), _num_assets)
 
 @internal
 @pure
