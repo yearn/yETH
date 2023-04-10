@@ -162,7 +162,6 @@ def test_D_2d_weighted(project, accounts):
     loss_20 = 1 - ds / dx
     assert loss_20 < 0.0015 and loss_20 > loss_80 # 0.15%
 
-
 def test_D_4d_weighted(project, accounts):
     math = project.Math.deploy(sender=accounts[0])
 
@@ -170,10 +169,8 @@ def test_D_4d_weighted(project, accounts):
     w = [E18*1//10, E18*2//10, E18*3//10, E18*4//10]
     t = 1_000_000 * E18
     x = [t * v // E18 for v in w]
-    s, i, _ = math.solve_D(a, w, x, 1)
-    print(s/E18)
-    print(i)
-    # assert False
+    s, _, _ = math.solve_D(a, w, x, 1)
+    assert abs(t - s) / t < 1e-20
 
 def test_y_4d(project, accounts):
     math = project.Math.deploy(sender=accounts[0])

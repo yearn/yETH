@@ -345,29 +345,27 @@ def solve_D(_a: uint256, _w: DynArray[uint256, MAX_N], _x: DynArray[uint256, MAX
     n: uint256 = len(_w)
     assert len(_x) == n
 
+    v: DynArray[uint256, 255] = []
+    w: DynArray[uint256, 255] = []
+
     # D[n+1] = (A w^n sum - D^(n+1)/(w^n prod^n)) / (A w^n - 1)
     #        = (l - D prod(D / (x_i / w_i)^(w_i n)))) / d
     l: uint256 = PRECISION # product(w_i^(w_i n)) = 1/w^n
     s: uint256 = 0 # sum(x_i)
-    p: uint256 = PRECISION # product(x_i^(w_i n))
     c: uint256 = 0 # sum(w_i)
 
     for i in range(MAX_N):
         if i == n:
             break
         wn: uint256 = _w[i] * n
-        l = l * self._pow(_w[i], wn) / PRECISION
+        l = l * PRECISION / self._pow(_w[i], wn)
         s += _x[i]
-        p = p * self._pow(_x[i], wn) / PRECISION
         c += _w[i]
     assert c == PRECISION
 
-    l = _a * PRECISION / l
+    l = _a * l / PRECISION
     d: uint256 = l - PRECISION
     l = l * s
-
-    v: DynArray[uint256, 255] = []
-    w: DynArray[uint256, 255] = []
 
     for _ in range(255):
         sp: uint256 = s
