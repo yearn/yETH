@@ -836,6 +836,7 @@ def add_asset(
         packed_weight = self._pack_weight(prev_weight - prev_weight * _weight / PRECISION, target, lower, upper)
         self.packed_vbs[i] = self._pack_vb(vb, rate, packed_weight)
     
+    assert ERC20Ext(_asset).decimals() == 18
     rate = RateProvider(_rate_provider).rate(_asset)
     assert rate > 0 # dev: no rate
 
