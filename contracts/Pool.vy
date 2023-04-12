@@ -696,6 +696,7 @@ def vb_prod_sum() -> (uint256, uint256):
     return self._unpack_pool_vb(self.packed_pool_vb)
 
 @external
+@view
 def virtual_balance(_asset: uint256) -> uint256:
     """
     @notice Get the virtual balance of an asset
