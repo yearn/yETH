@@ -287,6 +287,19 @@ def test_reward_withdraw(chain, alice, bob, asset, staking):
     assert staking.balanceOf(alice) == deposit * 3 // 4
     assert asset.balanceOf(bob) == deposit
 
+def test_withdraw_no_vote_weight(chain, deployer, alice, bob, asset, staking):
+    amt = PRECISION
+    asset.mint(alice, amt, sender=alice)
+    asset.approve(staking, MAX, sender=alice)
+    staking.deposit(amt, bob, sender=alice)
+    
+    chain.pending_timestamp += 2 * WEEK_LENGTH
+    staking.withdraw(amt, sender=bob)
+
+    chain.pending_timestamp += 2 * WEEK_LENGTH
+    chain.mine()
+    assert staking.vote_weight(bob) == 0
+
 def test_rescue(project, deployer, alice, asset, staking):
     asset.mint(alice, PRECISION, sender=alice)
     asset.approve(staking, MAX, sender=alice)

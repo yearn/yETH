@@ -653,8 +653,8 @@ def _update_account_shares(_account: address, _change: uint256, _add: bool):
         self.previous_weights[_account] = weight
 
     if shares == 0:
-        self.weights[_account] = empty(Weight)
-        return
+        weight.t = 0
+        weight.shares = 0
 
     t: uint256 = convert(weight.t, uint256)
     if weight.shares > 0:
