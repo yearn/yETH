@@ -1407,44 +1407,92 @@ def _calc_vb(
 @internal
 @pure
 def _pack_vb(_vb: uint256, _rate: uint256, _packed_weight: uint256) -> uint256:
+    """
+    @notice Pack virtual balance of asset along with other related variables
+    @param _vb Asset virtual balance
+    @param _rate Asset rate
+    @param _packed_weight Asset packed weight
+    @return Packed variable
+    """
     assert _vb <= VB_MASK and _rate <= RATE_MASK
     return _vb | shift(_rate, -RATE_SHIFT) | shift(_packed_weight, -PACKED_WEIGHT_SHIFT)
 
 @internal
 @pure
 def _unpack_vb(_packed: uint256) -> (uint256, uint256, uint256):
+    """
+    @notice Unpack variable to its components
+    @param _packed Packed variable
+    @return Tuple with virtual balance, rate and packed weight
+    """
     return _packed & VB_MASK, shift(_packed, RATE_SHIFT) & RATE_MASK, shift(_packed, PACKED_WEIGHT_SHIFT)
 
 @internal
 @pure
 def _pack_weight(_weight: uint256, _target: uint256, _lower: uint256, _upper: uint256) -> uint256:
+    """
+    @notice Pack weight with target and bands
+    @param _weight Weight (18 decimals)
+    @param _target Target weight (18 decimals)
+    @param _lower Lower band, allowed distance from weight in negative direction (18 decimals)
+    @param _upper Upper band, allowed distance from weight in positive direction (18 decimals)
+    @return Packed weight
+    """
     return unsafe_div(_weight, WEIGHT_SCALE) | shift(unsafe_div(_target, WEIGHT_SCALE), -TARGET_WEIGHT_SHIFT) | shift(unsafe_div(_lower, WEIGHT_SCALE), -LOWER_BAND_SHIFT) | shift(unsafe_div(_upper, WEIGHT_SCALE), -UPPER_BAND_SHIFT)
 
 @internal
 @pure
 def _unpack_weight(_packed: uint256) -> (uint256, uint256, uint256, uint256):
+    """
+    @notice Unpack weight to its components
+    @param _packed Packed weight
+    @return Tuple with weight, target weight, lower band and upper band (all in 18 decimals)
+    """
     return unsafe_mul(_packed & WEIGHT_MASK, WEIGHT_SCALE), unsafe_mul(shift(_packed, TARGET_WEIGHT_SHIFT) & WEIGHT_MASK, WEIGHT_SCALE), unsafe_mul(shift(_packed, LOWER_BAND_SHIFT) & WEIGHT_MASK, WEIGHT_SCALE), unsafe_mul(shift(_packed, UPPER_BAND_SHIFT), WEIGHT_SCALE)
 
 @internal
 @pure
 def _unpack_wn(_packed: uint256, _num_assets: uint256) -> uint256:
+    """
+    @notice Unpack weight and multiply by number of assets
+    @param _packed Packed weight
+    @param _num_assets Number of assets
+    @return Weight multiplied by number of assets (18 decimals)
+    """
     return unsafe_mul(unsafe_mul(_packed & WEIGHT_MASK, WEIGHT_SCALE), _num_assets)
 
 @internal
 @pure
 def _pack_pool_vb(_prod: uint256, _sum: uint256) -> uint256:
+    """
+    @notice Pack pool product and sum term
+    @param _prod Product term (pi)
+    @param _sum Sum term (sigma)
+    @return Packed terms
+    """
     assert _prod <= POOL_VB_MASK and _sum <= POOL_VB_MASK
     return _prod | shift(_sum, -POOL_VB_SHIFT)
 
 @internal
 @pure
 def _unpack_pool_vb(_packed: uint256) -> (uint256, uint256):
+    """
+    @notice Unpack pool product and sum term
+    @param _packed Packed terms
+    @return Tuple with pool product term (pi) and sum term (sigma)
+    """
     return _packed & POOL_VB_MASK, shift(_packed, POOL_VB_SHIFT)
 
 @internal
 @pure
 def _pow_up(_x: uint256, _y: uint256) -> uint256:
-    # guaranteed to be >= the actual value
+    """
+    @notice Calculate `x` to power of `y`, rounded up
+    @param _x Base (18 decimals)
+    @param _y Exponent (18 decimals)
+    @return `x^y` in 18 decimals, rounded up
+    @dev Guaranteed to be at least as big as the actual value
+    """
     p: uint256 = self._pow(_x, _y)
     if p == 0:
         return 0
@@ -1454,7 +1502,13 @@ def _pow_up(_x: uint256, _y: uint256) -> uint256:
 @internal
 @pure
 def _pow_down(_x: uint256, _y: uint256) -> uint256:
-    # guaranteed to be <= the actual value
+    """
+    @notice Calculate `x` to power of `y`, rounded down
+    @param _x Base (18 decimals)
+    @param _y Exponent (18 decimals)
+    @return `x^y` in 18 decimals, rounded down
+    @dev Guaranteed to be at most as big as the actual value
+    """
     p: uint256 = self._pow(_x, _y)
     if p == 0:
         return 0
@@ -1467,7 +1521,13 @@ def _pow_down(_x: uint256, _y: uint256) -> uint256:
 @internal
 @pure
 def _pow(_x: uint256, _y: uint256) -> uint256:
-    # x^y
+    """
+    @notice Calculate `x` to power of `y`
+    @param _x Base (18 decimals)
+    @param _y Exponent (18 decimals)
+    @return `x^y` in 18 decimals
+    @dev Only accurate until 10^-16, use rounded variants for consistent results
+    """
     # adapted from Balancer at https://github.com/balancer-labs/balancer-v2-monorepo/blob/599b0cd8f744e1eabef3600d79a2c2b0aea3ddcb/pkg/solidity-utils/contracts/math/LogExpMath.sol
     if _y == 0:
         return convert(E18, uint256) # x^0 == 1
@@ -1494,6 +1554,12 @@ def _pow(_x: uint256, _y: uint256) -> uint256:
 @internal
 @pure
 def _log36(_x: int256) -> int256:
+    """
+    @notice Calculate natural logarithm in double precision
+    @param _x Argument of logarithm (18 decimals)
+    @return Natural logarithm in 36 decimals
+    @dev Caller should perform bounds checks before calling this function
+    """
     x: int256 = unsafe_mul(_x, E18)
     
     # Taylor series
@@ -1525,6 +1591,11 @@ def _log36(_x: int256) -> int256:
 @internal
 @pure
 def _log(_a: int256) -> int256:
+    """
+    @notice Calculate natural logarithm
+    @param _a Argument of logarithm (18 decimals)
+    @return Natural logarithm in 18 decimals
+    """
     if _a < E18:
         # 1/a > 1, log(a) = -log(1/a)
         return -self.__log(unsafe_div(unsafe_mul(E18, E18), _a))
@@ -1533,6 +1604,13 @@ def _log(_a: int256) -> int256:
 @internal
 @pure
 def __log(_a: int256) -> int256:
+    """
+    @notice Calculate natural logarithm, assuming the argument is larger than one
+    @param _a Argument of logarithm (18 decimals)
+    @return Natural logarithm in 18 decimals
+    @dev Caller should perform bounds checks before calling this function
+    """
+    
     # log a = sum(k_n x_n) + log(rem)
     #       = log(product(a_n^k_n) * rem)
     # k_n = {0,1}, x_n = 2^(7-n), log(a_n) = x_n
@@ -1607,6 +1685,11 @@ def __log(_a: int256) -> int256:
 @internal
 @pure
 def _exp(_x: int256) -> int256:
+    """
+    @notice Calculate natural exponent `e^x`
+    @param _x Exponent (18 decimals)
+    @return Natural exponent in 18 decimals
+    """
     assert _x >= MIN_NAT_EXP and _x <= MAX_NAT_EXP
     if _x < 0:
         # exp(-x) = 1/exp(x)
@@ -1616,6 +1699,13 @@ def _exp(_x: int256) -> int256:
 @internal
 @pure
 def __exp(_x: int256) -> int256:
+    """
+    @notice Calculate natural exponent `e^x`, assuming exponent is positive
+    @param _x Exponent (18 decimals)
+    @return Natural exponent in 18 decimals
+    @dev Caller should perform bounds checks before calling this function
+    """
+    
     # e^x = e^(sum(k_n x_n) + rem)
     #     = product(e^(k_n x_n)) * e^(rem)
     #     = product(a_n^k_n) * e^(rem)
