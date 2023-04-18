@@ -35,8 +35,8 @@ ramp_last_time: public(uint256)
 ramp_stop_time: public(uint256)
 target_amplification: public(uint256)
 packed_pool_vb: uint256 # vb_prod (128) | vb_sum (128)
-# vb_prod: product((w_i * D / x_i)^(w_i n))
-# vb_sum: sum(x_i)
+# vb_prod: pi, product term `product((w_i * D / x_i)^(w_i n))`
+# vb_sum: sigma, sum term `sum(x_i)`
 
 event Swap:
     account: indexed(address)
@@ -1084,6 +1084,17 @@ def set_guardian(_guardian: address):
 
 @internal
 def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256):
+    """
+    @notice Update rates of specific assets
+    @param _assets Integer where each byte represents an asset index offset by one
+    @param _vb_prod Product term (pi) before update
+    @param _vb_sum Sum term (sigma) before update
+    @return Tuple with new product and sum term
+    @dev Loops through the bytes in `_assets` until a zero or a number larger than the number of assets is encountered
+    @dev Update weights (if needed) prior to checking any rates
+    @dev Will recalculate supply and mint/burn to staking contract if any weight or rate has updated
+    @dev Will revert if any rate increases by more than 10%, unless called by management
+    """
     assert not self.paused # dev: paused
     
     vb_prod: uint256 = 0
@@ -1106,6 +1117,7 @@ def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uin
         rate: uint256 = RateProvider(provider).rate(self.assets[asset])
         assert rate > 0 # dev: no rate
         if rate == prev_rate:
+            # no rate change
             continue
 
         # cap upward rate movements to 10%
@@ -1123,14 +1135,23 @@ def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uin
         log RateUpdate(asset, rate)
 
     if not updated and vb_prod == _vb_prod and vb_sum == _vb_sum:
+        # no weight and no rate changes
         return vb_prod, vb_sum
 
+    # recalculate supply and mint/burn token to staking address
     supply: uint256 = 0
     supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
     return vb_prod, vb_sum
 
 @internal
 def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, bool):
+    """
+    @notice Apply a step in amplitude and weight ramp, if applicable
+    @param _vb_prod Product term (pi) before update
+    @param _vb_sum Sum term (sigma) before update
+    @return Tuple with new product term and flag indicating if a step has been taken
+    @dev Caller is responsible for updating supply if a step has been taken
+    """
     span: uint256 = self.ramp_last_time
     duration: uint256 = self.ramp_stop_time
     if span == 0 or span > block.timestamp or (block.timestamp - span < self.ramp_step and duration > block.timestamp):
@@ -1192,7 +1213,13 @@ def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, bool):
 
 @internal
 def _update_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256):
-    # calculate new supply and burn or mint the difference from the staking contract
+    """
+    @notice Calculate supply and burn or mint difference from the staking contract
+    @param _supply Previous supply
+    @param _vb_prod Product term (pi)
+    @param _vb_sum Sum term (sigma)
+    @return Tuple with new supply and product term
+    """
     if _supply == 0:
         return 0, _vb_prod
 
@@ -1209,6 +1236,13 @@ def _update_supply(_supply: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (ui
 @internal
 @pure
 def _check_bands(_prev_ratio: uint256, _ratio: uint256, _packed_weight: uint256):
+    """
+    @notice Check whether asset is within safety band, or if previously outside, moves closer to it
+    @param _prev_ratio Asset ratio before user action
+    @param _ratio Asset ratio after user action
+    @param _packed_weight Packed weight
+    @dev Reverts if condition not met
+    """
     weight: uint256 = unsafe_mul(_packed_weight & WEIGHT_MASK, WEIGHT_SCALE)
 
     # lower limit check
@@ -1231,6 +1265,9 @@ def _check_bands(_prev_ratio: uint256, _ratio: uint256, _packed_weight: uint256)
 @internal
 @view
 def _calc_vb_prod_sum() -> (uint256, uint256):
+    """
+    @notice Calculate product term (pi) and sum term (sigma)
+    """
     s: uint256 = 0
     num_assets: uint256 = self.num_assets
     for asset in range(MAX_NUM_ASSETS):
@@ -1243,6 +1280,9 @@ def _calc_vb_prod_sum() -> (uint256, uint256):
 @internal
 @view
 def _calc_vb_prod(_s: uint256) -> uint256:
+    """
+    @notice Calculate product term (pi)
+    """
     num_assets: uint256 = self.num_assets
     p: uint256 = PRECISION
     for asset in range(MAX_NUM_ASSETS):
@@ -1269,6 +1309,17 @@ def _calc_supply(
     _vb_sum: uint256, 
     _up: bool
 ) -> (uint256, uint256):
+    """
+    @notice Calculate supply iteratively
+    @param _num_assets Number of assets in pool
+    @param _supply Supply as used in product term
+    @param _amplification Amplification factor `A f^n`
+    @param _vb_prod Product term (pi)
+    @param _vb_sum Sum term (sigma)
+    @param _up Whether to round up
+    @return Tuple with new supply and product term
+    """
+    
     # s[n+1] = (A sum / w^n - s^(n+1) w^n /prod^n)) / (A w^n - 1)
     #        = (l - s r) / d
 
@@ -1313,6 +1364,17 @@ def _calc_vb(
     _vb_prod: uint256, 
     _vb_sum: uint256
 ) -> uint256:
+    """
+    @notice Calculate a single asset's virtual balance iteratively using Newton's method
+    @param _wn Asset weight times number of assets
+    @param _y Starting value
+    @param _supply Supply
+    @param _amplification Amplification factor `A f^n`
+    @param _vb_prod Intermediary product term (pi~), pi with previous balances factored out and new balance factored in
+    @param _vb_sum Intermediary sum term (sigma~), sigma with previous balances subtracted and new balance added
+    @return New asset virtual balance
+    """
+
     # y = x_j, sum' = sum(x_i, i != j), prod' = prod(x_i^w_i, i != j)
     # w = product(w_i), v_i = w_i n, f_i = 1/v_i
     # Iteratively find root of g(y) using Newton's method
