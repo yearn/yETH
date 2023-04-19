@@ -439,6 +439,47 @@ def test_ramp_amplification(chain, deployer, alice, bob, token, weights, pool, e
     # effective amplification is equal to target
     assert abs(ampl_end - ampl) / ampl < 5e-16
 
+def test_ramp_commutative(project, deployer, alice, bob, token, weights, pool):
+    # check that deposit + weight ramp = weight + deposit
+    assets, provider, pool = pool
+    
+    # mint assets
+    n = len(assets)
+    amts = [12 * PRECISION, 25 * PRECISION, 27 * PRECISION, 36 * PRECISION]
+    for i in range(n):
+        asset = assets[i]
+        asset.approve(pool, MAX, sender=alice)
+        amts[i] = amts[i] * PRECISION // provider.rate(asset)
+        asset.mint(alice, amts[i], sender=alice)
+
+    # deposit
+    pool.add_liquidity(amts, 0, deployer, sender=alice)
+
+    # ramp
+    weights = [PRECISION * 15 // 100, PRECISION * 30 // 100, PRECISION * 20 // 100, PRECISION * 35 // 100]
+    pool.set_ramp(calc_w_prod(weights), weights, 0, sender=deployer)
+    pool.update_weights(sender=alice)
+    bal = token.balanceOf(deployer)
+    vb_prod, vb_sum = pool.vb_prod_sum()
+
+    # second pool that has the weights from the start
+    pool2 = project.Pool.deploy(token, calc_w_prod(weights), assets, [provider for _ in range(len(weights))], weights, sender=deployer)
+    pool2.set_staking(deployer, sender=deployer)
+    token.set_minter(pool2, sender=deployer)
+
+    for i in range(n):
+        asset = assets[i]
+        asset.approve(pool2, MAX, sender=alice)
+        asset.mint(alice, amts[i], sender=alice)
+
+    pool2.add_liquidity(amts, 0, sender=alice)
+    bal2 = token.balanceOf(alice)
+    vb_prod2, vb_sum2 = pool2.vb_prod_sum()
+
+    assert abs(bal - bal2) / bal2 < 2e-18
+    assert abs(vb_prod - vb_prod2) / vb_prod2 < 3e-18
+    assert vb_sum == vb_sum2
+
 def test_band(chain, deployer, alice, bob, weights, pool, estimator):
     assets, provider, pool = pool
     

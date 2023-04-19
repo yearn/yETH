@@ -679,7 +679,7 @@ def update_weights() -> bool:
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     vb_prod, vb_sum = self._unpack_pool_vb(self.packed_pool_vb)
-    vb_prod, updated = self._update_weights(vb_prod, vb_sum)
+    vb_prod, updated = self._update_weights(vb_prod)
     if updated and vb_sum > 0:
         supply: uint256 = 0
         supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
@@ -995,7 +995,7 @@ def set_ramp(
     vb_prod: uint256 = 0
     vb_sum: uint256 = 0
     vb_prod, vb_sum = self._unpack_pool_vb(self.packed_pool_vb)
-    vb_prod, updated = self._update_weights(vb_prod, vb_sum)
+    vb_prod, updated = self._update_weights(vb_prod)
     if updated:
         supply: uint256 = 0
         supply, vb_prod = self._update_supply(self.supply, vb_prod, vb_sum)
@@ -1100,7 +1100,7 @@ def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uin
     vb_prod: uint256 = 0
     vb_sum: uint256 = _vb_sum
     updated: bool = False
-    vb_prod, updated = self._update_weights(_vb_prod, vb_sum)
+    vb_prod, updated = self._update_weights(_vb_prod)
     num_assets: uint256 = self.num_assets
     for i in range(MAX_NUM_ASSETS):
         asset: uint256 = shift(_assets, unsafe_mul(-8, convert(i, int128))) & 255
@@ -1144,11 +1144,10 @@ def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uin
     return vb_prod, vb_sum
 
 @internal
-def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, bool):
+def _update_weights(_vb_prod: uint256) -> (uint256, bool):
     """
     @notice Apply a step in amplitude and weight ramp, if applicable
     @param _vb_prod Product term (pi) before update
-    @param _vb_sum Sum term (sigma) before update
     @return Tuple with new product term and flag indicating if a step has been taken
     @dev Caller is responsible for updating supply if a step has been taken
     """
@@ -1207,8 +1206,9 @@ def _update_weights(_vb_prod: uint256, _vb_sum: uint256) -> (uint256, bool):
         self.packed_vbs[asset] = self._pack_vb(vb, rate, packed_weight)
 
     vb_prod: uint256 = 0
-    if _vb_sum > 0:
-        vb_prod = self._calc_vb_prod(_vb_sum)
+    supply: uint256 = self.supply
+    if supply > 0:
+        vb_prod = self._calc_vb_prod(supply)
     return vb_prod, True
 
 @internal
@@ -1267,6 +1267,7 @@ def _check_bands(_prev_ratio: uint256, _ratio: uint256, _packed_weight: uint256)
 def _calc_vb_prod_sum() -> (uint256, uint256):
     """
     @notice Calculate product term (pi) and sum term (sigma)
+    @return Tuple with product term and sum term
     """
     s: uint256 = 0
     num_assets: uint256 = self.num_assets
@@ -1282,6 +1283,8 @@ def _calc_vb_prod_sum() -> (uint256, uint256):
 def _calc_vb_prod(_s: uint256) -> uint256:
     """
     @notice Calculate product term (pi)
+    @param _s Supply to use in product term
+    @param Product term
     """
     num_assets: uint256 = self.num_assets
     p: uint256 = PRECISION
