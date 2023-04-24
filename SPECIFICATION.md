@@ -69,6 +69,7 @@ _Note:_ this mode is to be activated in the event of a LSD depeg, such as a mint
     - If the balance has increased, it is added to the pending bucket. If one or more week has been missed, the increase is distributed instead over the three buckets fairly.
     - If the balance has decreased, it is subtracted from the pending bucket until it is empty. If the bucket is empty, the remainder is subtracted from the streaming bucket. If that bucket is also empty, the remainder is subtracted from the unlocked bucket
 - At the end of the week, the pending bucket becomes the streaming bucket and a new pending bucket is created
+- If the first update of the week is in the first day, it is added to the streaming bucket directly instead
 - The streaming bucket is unlocked linearly during the week
 - User deposits and withdrawals only affect the unlocked bucket
 - Each user has an internal vote weight that increases asymptotically to the user's share count. After `t` seconds, their vote weight is `s * t / (t + t_half)` where `s` is the number of shares and `t_half` is the voting half time
