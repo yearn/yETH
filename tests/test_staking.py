@@ -41,7 +41,10 @@ def test_deposit(chain, deployer, alice, bob, asset, staking):
     amt = 3 * PRECISION
     asset.mint(alice, amt, sender=alice)
     asset.approve(staking, MAX, sender=alice)
-    
+
+    with ape.reverts(dev_message='dev: minimum initial deposit size'):
+        staking.deposit(1, sender=alice)
+
     # set time to `half_time` before end of a week
     ts = (chain.pending_timestamp // WEEK_LENGTH + 2) * WEEK_LENGTH - half_time
     chain.pending_timestamp = ts
@@ -287,7 +290,7 @@ def test_reward_withdraw(chain, alice, bob, asset, staking):
     assert staking.balanceOf(alice) == deposit * 3 // 4
     assert asset.balanceOf(bob) == deposit
 
-def test_withdraw_no_vote_weight(chain, deployer, alice, bob, asset, staking):
+def test_withdraw_no_vote_weight(chain, alice, bob, asset, staking):
     amt = PRECISION
     asset.mint(alice, amt, sender=alice)
     asset.approve(staking, MAX, sender=alice)

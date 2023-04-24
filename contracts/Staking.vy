@@ -443,7 +443,7 @@ def set_treasury(_treasury: address):
 @view
 def _preview_deposit(_assets: uint256, _total_shares: uint256, _total_assets: uint256) -> uint256:
     if _total_shares == 0:
-        assert _assets >= MINIMUM_INITIAL_DEPOSIT
+        assert _assets >= MINIMUM_INITIAL_DEPOSIT # dev: minimum initial deposit size
         return _assets
     if _total_assets == 0:
         return 0
@@ -453,7 +453,7 @@ def _preview_deposit(_assets: uint256, _total_shares: uint256, _total_assets: ui
 @view
 def _preview_mint(_shares: uint256, _total_shares: uint256, _total_assets: uint256) -> uint256:
     if _total_shares == 0:
-        assert _shares >= MINIMUM_INITIAL_DEPOSIT
+        assert _shares >= MINIMUM_INITIAL_DEPOSIT # dev: minimum initial deposit size
         return _shares
     if _total_assets == 0:
         return 0
