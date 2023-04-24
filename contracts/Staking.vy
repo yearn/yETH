@@ -44,6 +44,7 @@ decimals: public(constant(uint8)) = 18
 asset: public(immutable(address))
 
 FEE_PRECISION: constant(uint256) = 10_000
+MINIMUM_INITIAL_DEPOSIT: constant(uint256) = 1_000_000_000_000_000
 DAY_LENGTH: constant(uint256) = 24 * 60 * 60
 WEEK_LENGTH: constant(uint256) = 7 * DAY_LENGTH
 
@@ -442,6 +443,7 @@ def set_treasury(_treasury: address):
 @view
 def _preview_deposit(_assets: uint256, _total_shares: uint256, _total_assets: uint256) -> uint256:
     if _total_shares == 0:
+        assert _assets >= MINIMUM_INITIAL_DEPOSIT
         return _assets
     if _total_assets == 0:
         return 0
@@ -451,6 +453,7 @@ def _preview_deposit(_assets: uint256, _total_shares: uint256, _total_assets: ui
 @view
 def _preview_mint(_shares: uint256, _total_shares: uint256, _total_assets: uint256) -> uint256:
     if _total_shares == 0:
+        assert _shares >= MINIMUM_INITIAL_DEPOSIT
         return _shares
     if _total_assets == 0:
         return 0
