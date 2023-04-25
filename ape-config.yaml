@@ -1,4 +1,7 @@
 name: yeth-contracts
+plugins:
+  - name: vyper
+  - name: hardhat
 ethereum:
   default_network: local
   local:
