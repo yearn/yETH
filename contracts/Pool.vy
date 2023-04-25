@@ -1332,11 +1332,10 @@ def _calc_supply(
     r: uint256 = _vb_prod
     l = l * _vb_sum
 
-    num_assets: uint256 = _num_assets
     for _ in range(255):
         sp: uint256 = unsafe_div(unsafe_sub(l, unsafe_mul(s, r)), d) # (l - s * r) / d
         for i in range(MAX_NUM_ASSETS):
-            if i == num_assets:
+            if i == _num_assets:
                 break
             r = unsafe_div(unsafe_mul(r, sp), s) # r * sp / s
         if sp >= s:
@@ -1386,15 +1385,14 @@ def _calc_vb(
     # y[n+1] = y[n] - g(y[n])/g'(y[n])
     #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / ((f_j + 1) y[n] + b))
 
-    d: uint256 = _supply
-    b: uint256 = d * PRECISION / _amplification # actually b + D
-    c: uint256 = _vb_prod * b / PRECISION
+    b: uint256 = _supply * PRECISION / _amplification # b' = sigma + D / (A f^n)
+    c: uint256 = _vb_prod * b / PRECISION # c = D / (A f^n) * pi
     b += _vb_sum
-    f: uint256 = PRECISION * PRECISION / _wn
+    q: uint256 = PRECISION * PRECISION / _wn # q = 1/v_i = 1/(w_i n)
 
     y: uint256 = _y
     for _ in range(255):
-        yp: uint256 = (y + b + d * f / PRECISION + c * f / self._pow_up(y, _wn) - b * f / PRECISION - d) * y / (f * y / PRECISION + y + b - d)
+        yp: uint256 = (y + b + _supply * q / PRECISION + c * q / self._pow_up(y, _wn) - b * q / PRECISION - _supply) * y / (q * y / PRECISION + y + b - _supply)
         if yp >= y:
             if (yp - y) * PRECISION / y <= MAX_POW_REL_ERR:
                 yp += yp * MAX_POW_REL_ERR / PRECISION
