@@ -6,6 +6,7 @@ Pool and staking contract follow [specification](./SPECIFICATION.md).
 ### Install dependencies
 ```
 pip install eth-ape
+ape plugins install .
 pip install mpmath
 ```
 
