@@ -1323,17 +1323,18 @@ def _calc_supply(
     @return Tuple with new supply and product term
     """
     
-    # s[n+1] = (A sum / w^n - s^(n+1) w^n /prod^n)) / (A w^n - 1)
+    # D[m+1] = (A f^n sigma - D[m] pi[m] )) / (A f^n - 1)
     #        = (l - s r) / d
 
-    l: uint256 = _amplification
-    d: uint256 = l - PRECISION
-    s: uint256 = _supply
-    r: uint256 = _vb_prod
+    l: uint256 = _amplification # left: A f^n sigma
+    d: uint256 = l - PRECISION # denominator: A f^n - 1
     l = l * _vb_sum
+    s: uint256 = _supply # supply: D[m]
+    r: uint256 = _vb_prod # right: pi[m]
 
     for _ in range(255):
-        sp: uint256 = unsafe_div(unsafe_sub(l, unsafe_mul(s, r)), d) # (l - s * r) / d
+        sp: uint256 = unsafe_div(unsafe_sub(l, unsafe_mul(s, r)), d) # D[m+1] = (l - s * r) / d
+        # update product term pi[m+1] = (D[m+1]/D[m])^n pi[m]
         for i in range(MAX_NUM_ASSETS):
             if i == _num_assets:
                 break
@@ -1377,13 +1378,12 @@ def _calc_vb(
     @return New asset virtual balance
     """
 
-    # y = x_j, sum' = sum(x_i, i != j), prod' = prod(x_i^w_i, i != j)
-    # w = product(w_i), v_i = w_i n, f_i = 1/v_i
+    # y = x_j, sum' = sum(x_i, i != j), prod' = D^n w_j^(v_j) prod((w_i/x_i)^v_i, i != j)
     # Iteratively find root of g(y) using Newton's method
-    # g(y) = y^(v_j + 1) + (sum' + (w^n / A - 1) D) y^(v_j) - D^(n+1) w^2n / prod'^n
+    # g(y) = y^(v_j + 1) + (sum' + (1 / (A f^n) - 1) D) y^(v_j) - D prod' / (A f^n)
     #      = y^(v_j + 1) + b y^(v_j) - c
     # y[n+1] = y[n] - g(y[n])/g'(y[n])
-    #        = (y[n]^2 + b (1 - f_j) y[n] + c f_j y[n]^(1 - v_j)) / ((f_j + 1) y[n] + b))
+    #        = (y[n]^2 + b (1 - q) y[n] + c q y[n]^(1 - v_j)) / ((q + 1) y[n] + b))
 
     b: uint256 = _supply * PRECISION / _amplification # b' = sigma + D / (A f^n)
     c: uint256 = _vb_prod * b / PRECISION # c = D / (A f^n) * pi
