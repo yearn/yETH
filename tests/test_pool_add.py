@@ -323,14 +323,17 @@ def test_ramp_weight(chain, deployer, alice, bob, token, weights, pool, estimato
         chain.mine()
         exp = estimator.get_add_lp(amts)
         ampl_mid = estimator.get_effective_amplification()
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         mid_1 = token.balanceOf(bob)
         assert abs(mid_1 - exp) <= 5
     amts = [PRECISION if i == 2 else 0 for i in range(n)]
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         chain.mine()
         exp = estimator.get_add_lp(amts)
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         mid_2 = token.balanceOf(bob)
@@ -351,14 +354,17 @@ def test_ramp_weight(chain, deployer, alice, bob, token, weights, pool, estimato
         chain.mine()
         exp = estimator.get_add_lp(amts)
         ampl_end = estimator.get_effective_amplification()
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         end_1 = token.balanceOf(bob)
         assert abs(end_1 - exp) <= 21
     amts = [PRECISION if i == 2 else 0 for i in range(n)]
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         chain.mine()    
         exp = estimator.get_add_lp(amts)
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         end_2 = token.balanceOf(bob)
@@ -410,6 +416,7 @@ def test_ramp_amplification(chain, deployer, alice, bob, token, weights, pool, e
         chain.mine()
         exp = estimator.get_add_lp(amts)
         ampl_half = estimator.get_effective_amplification()
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         mid = token.balanceOf(bob)
@@ -428,6 +435,7 @@ def test_ramp_amplification(chain, deployer, alice, bob, token, weights, pool, e
         chain.mine()
         exp = estimator.get_add_lp(amts)
         ampl_end = estimator.get_effective_amplification()
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         pool.add_liquidity(amts, 0, bob, sender=alice)
         end = token.balanceOf(bob)

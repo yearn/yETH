@@ -213,13 +213,16 @@ def test_ramp_weight(chain, deployer, alice, bob, weights, pool, estimator):
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dy(0, 1, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         pool.swap(0, 1, PRECISION, 0, bob, sender=alice)
         mid_1 = assets[1].balanceOf(bob)
         assert abs(mid_1 - exp) <= 2
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dy(0, 2, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         pool.swap(0, 2, PRECISION, 0, bob, sender=alice)
         mid_2 = assets[2].balanceOf(bob)
@@ -235,13 +238,16 @@ def test_ramp_weight(chain, deployer, alice, bob, weights, pool, estimator):
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dy(0, 1, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         pool.swap(0, 1, PRECISION, 0, bob, sender=alice)
         end_1 = assets[1].balanceOf(bob)
         assert abs(end_1 - exp) <= 4
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dy(0, 2, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         pool.swap(0, 2, PRECISION, 0, bob, sender=alice)
         end_2 = assets[2].balanceOf(bob)
@@ -283,6 +289,7 @@ def test_ramp_amplification(chain, deployer, alice, bob, weights, pool, estimato
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dy(0, 1, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         pool.swap(0, 1, PRECISION, 0, bob, sender=alice)
         mid = assets[1].balanceOf(bob)
@@ -296,6 +303,7 @@ def test_ramp_amplification(chain, deployer, alice, bob, weights, pool, estimato
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dy(0, 1, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         pool.swap(0, 1, PRECISION, 0, bob, sender=alice)
         end = assets[1].balanceOf(bob)

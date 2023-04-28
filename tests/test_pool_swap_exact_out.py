@@ -211,12 +211,15 @@ def test_ramp_weight(chain, deployer, alice, bob, weights, pool, estimator):
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dx(0, 1, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         mid_1 = pool.swap_exact_out(0, 1, PRECISION, MAX, bob, sender=alice).return_value
         assert abs(mid_1 - exp) <= 5
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dx(0, 2, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         mid_2 = pool.swap_exact_out(0, 2, PRECISION, MAX, bob, sender=alice).return_value
         assert abs(mid_2 - exp) <= 3
@@ -231,12 +234,15 @@ def test_ramp_weight(chain, deployer, alice, bob, weights, pool, estimator):
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dx(0, 1, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         end_1 = pool.swap_exact_out(0, 1, PRECISION, MAX, bob, sender=alice).return_value
         assert abs(end_1 - exp) <= 9
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dx(0, 2, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         end_2 = pool.swap_exact_out(0, 2, PRECISION, MAX, bob, sender=alice).return_value
         assert abs(end_2 - exp) <= 7
@@ -276,6 +282,7 @@ def test_ramp_amplification(chain, deployer, alice, bob, weights, pool, estimato
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dx(0, 1, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         mid = pool.swap_exact_out(0, 1, PRECISION, MAX, bob, sender=alice).return_value
         assert mid == exp
@@ -288,6 +295,7 @@ def test_ramp_amplification(chain, deployer, alice, bob, weights, pool, estimato
     with chain.isolate():
         chain.mine()
         exp = estimator.get_dx(0, 1, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         end = pool.swap_exact_out(0, 1, PRECISION, MAX, bob, sender=alice).return_value
         assert abs(end - exp) <= 2

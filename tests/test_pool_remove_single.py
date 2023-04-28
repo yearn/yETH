@@ -205,14 +205,17 @@ def test_ramp_weight(chain, deployer, alice, bob, weights, pool, estimator):
     with chain.isolate():
         chain.mine()
         exp = estimator.get_remove_single_lp(1, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         pool.remove_liquidity_single(1, PRECISION, 0, bob, sender=deployer)
         mid_1 = assets[1].balanceOf(bob)
         assert abs(mid_1 - exp) <= 1
         assert mid_1 == exp
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         chain.mine()
         exp = estimator.get_remove_single_lp(2, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         pool.remove_liquidity_single(2, PRECISION, 0, bob, sender=deployer)
         mid_2 = assets[2].balanceOf(bob)
@@ -228,13 +231,16 @@ def test_ramp_weight(chain, deployer, alice, bob, weights, pool, estimator):
     with chain.isolate():
         chain.mine()
         exp = estimator.get_remove_single_lp(1, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         pool.remove_liquidity_single(1, PRECISION, 0, bob, sender=deployer)
         end_1 = assets[1].balanceOf(bob)
         assert abs(end_1 - exp) <= 2
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         chain.mine()
         exp = estimator.get_remove_single_lp(2, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         pool.remove_liquidity_single(2, PRECISION, 0, bob, sender=deployer)
         end_2 = assets[2].balanceOf(bob)
@@ -274,6 +280,7 @@ def test_ramp_amplification(chain, deployer, alice, bob, weights, pool, estimato
     with chain.isolate():
         chain.mine()
         exp = estimator.get_remove_single_lp(0, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH // 2
     with chain.isolate():
         pool.remove_liquidity_single(0, PRECISION, 0, bob, sender=deployer)
         mid = assets[0].balanceOf(bob)
@@ -287,6 +294,7 @@ def test_ramp_amplification(chain, deployer, alice, bob, weights, pool, estimato
     with chain.isolate():
         chain.mine()
         exp = estimator.get_remove_single_lp(0, PRECISION)
+    chain.pending_timestamp = ts + WEEK_LENGTH
     with chain.isolate():
         pool.remove_liquidity_single(0, PRECISION, 0, bob, sender=deployer)
         end = assets[0].balanceOf(bob)
