@@ -1,8 +1,8 @@
 name: yeth-contracts
 plugins:
   - name: vyper
-  - name: hardhat
+  - name: foundry
 ethereum:
   default_network: local
   local:
-    default_provider: hardhat
+    default_provider: foundry
