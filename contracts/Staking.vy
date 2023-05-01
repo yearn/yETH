@@ -86,6 +86,9 @@ event Withdraw:
     assets: uint256
     shares: uint256
 
+INCREMENT: constant(bool) = True
+DECREMENT: constant(bool) = False
+
 @external
 def __init__(_asset: address):
     """
@@ -108,10 +111,10 @@ def transfer(_to: address, _value: uint256) -> bool:
     @param _value Amount to transfer
     @return Flag indicating whether the transfer was successful
     """
-    assert _to != empty(address)
+    assert _to != empty(address) and _to != self
     assert _value > 0
-    self._update_account_shares(msg.sender, _value, False)
-    self._update_account_shares(_to, _value, True)
+    self._update_account_shares(msg.sender, _value, DECREMENT)
+    self._update_account_shares(_to, _value, INCREMENT)
     log Transfer(msg.sender, _to, _value)
     return True
 
@@ -124,24 +127,59 @@ def transferFrom(_from: address, _to: address, _value: uint256) -> bool:
     @param _value Amount to transfer
     @return Flag indicating whether the transfer was successful
     """
-    assert _to != empty(address)
+    assert _to != empty(address) and _to != self
     assert _value > 0
     self.allowance[_from][msg.sender] -= _value
-    self._update_account_shares(_from, _value, False)
-    self._update_account_shares(_to, _value, True)
+    self._update_account_shares(_from, _value, DECREMENT)
+    self._update_account_shares(_to, _value, INCREMENT)
     log Transfer(_from, _to, _value)
     return True
 
 @external
 def approve(_spender: address, _value: uint256) -> bool:
     """
-    @notice Approve another account to spend
+    @notice Approve another account to spend. Beware that changing an allowance 
+        with this method brings the risk that someone may use both the old and 
+        the new allowance by unfortunate transaction ordering. 
+        See https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
     @param _spender Account that is allowed to spend
     @param _value Amount that the spender is allowed to transfer
     @return Flag indicating whether the approval was successful
     """
     self.allowance[msg.sender][_spender] = _value
     log Approval(msg.sender, _spender, _value)
+    return True
+
+@external
+def increaseAllowance(_spender: address, _value: uint256) -> bool:
+    """
+    @notice Increase the allowance of another account to spend. This method mitigates 
+        the risk that someone may use both the old and the new allowance by unfortunate 
+        transaction ordering.
+        See https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+    @param _spender Account that is allowed to spend
+    @param _value The amount of tokens to increase the allowance by
+    @return True
+    """
+    allowance: uint256 = self.allowance[msg.sender][_spender] + _value
+    self.allowance[msg.sender][_spender] = allowance
+    log Approval(msg.sender, _spender, allowance)
+    return True
+
+@external
+def decreaseAllowance(_spender: address, _value: uint256) -> bool:
+    """
+    @notice Decrease the allowance of another account to spend. This method mitigates 
+        the risk that someone may use both the old and the new allowance by unfortunate 
+        transaction ordering.
+        See https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+    @param _spender Account that is allowed to spend
+    @param _value The amount of tokens to increase the allowance by
+    @return True
+    """
+    allowance: uint256 = self.allowance[msg.sender][_spender] - _value
+    self.allowance[msg.sender][_spender] = allowance
+    log Approval(msg.sender, _spender, allowance)
     return True
 
 # ERC4626 functions
@@ -463,7 +501,7 @@ def _preview_mint(_shares: uint256, _total_shares: uint256, _total_assets: uint2
 def _deposit(_assets: uint256, _shares: uint256, _receiver: address):
     self.unlocked += _assets
     self.totalSupply += _shares
-    self._update_account_shares(_receiver, _shares, True)
+    self._update_account_shares(_receiver, _shares, INCREMENT)
     
     assert ERC20(asset).transferFrom(msg.sender, self, _assets, default_return_value=True)
     log Deposit(msg.sender, _receiver, _assets, _shares)
@@ -489,7 +527,7 @@ def _withdraw(_assets: uint256, _shares: uint256, _receiver: address, _owner: ad
     
     self.unlocked -= _assets
     self.totalSupply -= _shares
-    self._update_account_shares(_owner, _shares, False)
+    self._update_account_shares(_owner, _shares, DECREMENT)
 
     assert ERC20(asset).transfer(_receiver, _assets, default_return_value=True)
     log Withdraw(msg.sender, _receiver, _owner, _assets, _shares)
@@ -624,7 +662,7 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int2
                 # there are enough streaming assets to cover the penalty
                 streaming -= shortage
             else:
-                # take from unlocked funds
+                # as a last resort, take from unlocked funds
                 shortage -= streaming
                 streaming = 0
                 unlocked -= shortage
