@@ -29,6 +29,9 @@ event Approval:
     spender: indexed(address)
     value: uint256
 
+event SetManagement:
+    account: indexed(address)
+
 event SetMinter:
     account: indexed(address)
     minter: bool
@@ -40,7 +43,15 @@ def __init__():
 
 @external
 def transfer(_to: address, _value: uint256) -> bool:
-    assert _to != empty(address)
+    """
+    @notice Transfers `_value` tokens from the caller's address to `_to`
+    @param _to The address shares are being transferred to. Must not be this contract's
+        address, must not be 0x0
+    @param _value The quantity of tokens to transfer
+    @return True
+    """
+    assert _to != empty(address) and _to != self
+    assert _value > 0
     self.balanceOf[msg.sender] -= _value
     self.balanceOf[_to] += _value
     log Transfer(msg.sender, _to, _value)
@@ -48,7 +59,17 @@ def transfer(_to: address, _value: uint256) -> bool:
 
 @external
 def transferFrom(_from: address, _to: address, _value: uint256) -> bool:
-    assert _to != empty(address)
+    """
+    @notice Transfers `_value` tokens from `_from` to `_to`.
+        Transfering tokens will decrement the caller's `allowance` by `_value`
+    @param _from The address tokens are being transferred from
+    @param _to The address tokens are being transferred to. Must not be this contract's
+        address, must not be 0x0
+    @param _value The quantity of tokens to transfer
+    @return True
+    """
+    assert _to != empty(address) and _to != self
+    assert _value > 0
     self.allowance[_from][msg.sender] -= _value
     self.balanceOf[_from] -= _value
     self.balanceOf[_to] += _value
@@ -57,18 +78,78 @@ def transferFrom(_from: address, _to: address, _value: uint256) -> bool:
 
 @external
 def approve(_spender: address, _value: uint256) -> bool:
+    """
+    @notice Approve the passed address to spend the specified amount of tokens on behalf of
+        `msg.sender`. Beware that changing an allowance with this method brings the risk
+        that someone may use both the old and the new allowance by unfortunate transaction
+        ordering. See https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+    @param _spender The address which will spend the funds
+    @param _value The amount of tokens to be spent
+    @return True
+    """
     self.allowance[msg.sender][_spender] = _value
     log Approval(msg.sender, _spender, _value)
     return True
 
 @external
+def increaseAllowance(_spender: address, _value: uint256) -> bool:
+    """
+    @notice Increase the allowance of the passed address to spend the total amount of tokens
+        on behalf of `msg.sender`. This method mitigates the risk that someone may use both
+        the old and the new allowance by unfortunate transaction ordering.
+        See https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+    @param _spender The address which will spend the funds
+    @param _value The amount of tokens to increase the allowance by
+    @return True
+    """
+    allowance: uint256 = self.allowance[msg.sender][_spender] + _value
+    self.allowance[msg.sender][_spender] = allowance
+    log Approval(msg.sender, _spender, allowance)
+    return True
+
+@external
+def decreaseAllowance(_spender: address, _value: uint256) -> bool:
+    """
+    @notice Decrease the allowance of the passed address to spend the total amount of tokens
+        on behalf of `msg.sender`. This method mitigates the risk that someone may use both
+        the old and the new allowance by unfortunate transaction ordering.
+        See https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+    @param _spender The address which will spend the funds
+    @param _value The amount of tokens to decrease the allowance by
+    @return True
+    """
+    allowance: uint256 = self.allowance[msg.sender][_spender] - _value
+    self.allowance[msg.sender][_spender] = allowance
+    log Approval(msg.sender, _spender, allowance)
+    return True
+
+@external
+def set_management(_management: address):
+    """
+    @notice Set new management address
+    """
+    assert msg.sender == self.management
+    self.management = _management
+    log SetManagement(_management)
+
+@external
 def set_minter(_account: address, _minter: bool = True):
-    assert self.management == msg.sender
+    """
+    @notice Grant or revoke mint and burn powers to an account
+    @param _account The account to change mint/burn powers of
+    @param _minter Flag whether or not to allow minting/burning
+    """
+    assert msg.sender == self.management
     self.minters[_account] = _minter
     log SetMinter(_account, _minter)
 
 @external
 def mint(_account: address, _value: uint256):
+    """
+    @notice Mint `_value` tokens to `_account`
+    @param _account The account to mint tokens to
+    @param _value Amount of tokens to mint
+    """
     assert self.minters[msg.sender]
     self.totalSupply += _value
     self.balanceOf[_account] += _value
@@ -76,6 +157,11 @@ def mint(_account: address, _value: uint256):
 
 @external
 def burn(_account: address, _value: uint256):
+    """
+    @notice Burn `_value` tokens from `_account`
+    @param _account The account to burn tokens from
+    @param _value Amount of tokens to burn
+    """
     assert self.minters[msg.sender]
     self.totalSupply -= _value
     self.balanceOf[_account] -= _value
