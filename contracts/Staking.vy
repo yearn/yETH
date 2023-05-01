@@ -43,11 +43,6 @@ decimals: public(constant(uint8)) = 18
 # ERC4626 state
 asset: public(immutable(address))
 
-FEE_PRECISION: constant(uint256) = 10_000
-MINIMUM_INITIAL_DEPOSIT: constant(uint256) = 1_000_000_000_000_000
-DAY_LENGTH: constant(uint256) = 24 * 60 * 60
-WEEK_LENGTH: constant(uint256) = 7 * DAY_LENGTH
-
 event Rewards:
     pending: uint256
     streaming: uint256
@@ -86,6 +81,12 @@ event Withdraw:
     assets: uint256
     shares: uint256
 
+FEE_PRECISION: constant(uint256) = 10_000
+MINIMUM_INITIAL_DEPOSIT: constant(uint256) = 1_000_000_000_000_000
+DAY_LENGTH: constant(uint256) = 24 * 60 * 60
+WEEK_LENGTH: constant(uint256) = 7 * DAY_LENGTH
+MIN_FEE_RATE: constant(uint256) = 500
+MAX_FEE_RATE: constant(uint256) = 2_000
 INCREMENT: constant(bool) = True
 DECREMENT: constant(bool) = False
 
@@ -442,9 +443,10 @@ def rescue(_token: address, _receiver: address):
 def set_performance_fee_rate(_fee_rate: uint256):
     """
     @notice Set the performance fee rate
-    @param _fee_rate Performance fee rate (in 18 decimals)
+    @param _fee_rate Performance fee rate (in basispoints)
     """
     assert msg.sender == self.management
+    assert _fee_rate >= MIN_FEE_RATE and _fee_rate <= MAX_FEE_RATE
     self.performance_fee_rate = _fee_rate
     log SetFeeRate(_fee_rate)
 
