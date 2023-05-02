@@ -864,6 +864,7 @@ def add_asset(
     self.supply = supply
     self.packed_pool_vb = self._pack_pool_vb(vb_prod, vb_sum)
 
+    assert ERC20(_asset).transferFrom(msg.sender, self, _amount, default_return_value=True)
     PoolToken(token).mint(_receiver, supply - prev_supply)
     log AddAsset(prev_num_assets, _asset, _rate_provider, rate, _weight, _amount)
 

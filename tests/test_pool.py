@@ -363,10 +363,11 @@ def test_add_asset(project, deployer, alice, token):
     token.set_minter(pool, sender=deployer)
 
     for asset in assets:
-        asset.approve(pool, MAX, sender=alice)
-        asset.mint(alice, amt, sender=deployer)
-    pool.add_liquidity([amt for _ in range(n)], 0, sender=alice)
+        asset.approve(pool, MAX, sender=deployer)
+        asset.mint(deployer, amt, sender=deployer)
+    pool.add_liquidity([amt for _ in range(n)], 0, alice, sender=deployer)
     pool.add_asset(assets[4], provider, PRECISION//5, PRECISION, PRECISION, amt, amplification, alice, sender=deployer)
+    assert assets[4].balanceOf(pool) == amt
 
     vb_sum2, vb_prod2 = pool.vb_prod_sum()
     supply2 = pool.supply()
