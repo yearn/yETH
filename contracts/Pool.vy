@@ -732,7 +732,7 @@ def weight(_asset: uint256) -> (uint256, uint256, uint256, uint256):
     upper: uint256 = 0
     weight, target, lower, upper = self._unpack_weight(shift(self.packed_vbs[_asset], PACKED_WEIGHT_SHIFT))
     if self.ramp_last_time == 0:
-        target = 0
+        target = weight
     return weight, target, lower, upper
 
 @external
