@@ -52,10 +52,6 @@ event Rewards:
 event SetFeeRate:
     fee_rate: uint256
 
-event SetMinter:
-    account: indexed(address)
-    minter: bool
-
 # ERC20 events
 event Transfer:
     sender: indexed(address)
