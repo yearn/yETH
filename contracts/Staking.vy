@@ -107,7 +107,7 @@ def transfer(_to: address, _value: uint256) -> bool:
     @notice Transfer to another account
     @param _to Account to transfer to
     @param _value Amount to transfer
-    @return Flag indicating whether the transfer was successful
+    @return True
     """
     assert _to != empty(address) and _to != self
     assert _value > 0
@@ -123,7 +123,7 @@ def transferFrom(_from: address, _to: address, _value: uint256) -> bool:
     @param _from Account to transfe from
     @param _to Account to transfer to
     @param _value Amount to transfer
-    @return Flag indicating whether the transfer was successful
+    @return True
     """
     assert _to != empty(address) and _to != self
     assert _value > 0

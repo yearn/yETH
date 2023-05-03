@@ -670,8 +670,8 @@ def update_rates(_assets: DynArray[uint256, MAX_NUM_ASSETS]):
 @external
 def update_weights() -> bool:
     """
-    @notice Calculate new weights
-    @return Boolean to indicate whether the
+    @notice Update weights and amplification factor, if possible
+    @return Boolean to indicate whether the weights and amplification factor have been updated
     @dev Will only update the weights if a ramp is active and at least the minimum time step has been reached
     """
     assert not self.paused # dev: paused
