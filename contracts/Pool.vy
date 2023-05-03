@@ -40,9 +40,9 @@ packed_pool_vb: uint256 # vb_prod (128) | vb_sum (128)
 
 event Swap:
     account: indexed(address)
-    receiver: indexed(address)
-    asset_in: uint256
-    asset_out: uint256
+    receiver: address
+    asset_in: indexed(uint256)
+    asset_out: indexed(uint256)
     amount_in: uint256
     amount_out: uint256
 
@@ -60,7 +60,7 @@ event RemoveLiquidity:
 event RemoveLiquiditySingle:
     account: indexed(address)
     receiver: indexed(address)
-    asset: uint256
+    asset: indexed(uint256)
     amount_out: uint256
     lp_amount: uint256
 
@@ -88,7 +88,7 @@ event SetSwapFeeRate:
     rate: uint256
 
 event SetWeightBand:
-    asset: uint256
+    asset: indexed(uint256)
     lower: uint256
     upper: uint256
 
