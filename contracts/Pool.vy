@@ -1341,20 +1341,19 @@ def _calc_supply(
             if i == _num_assets:
                 break
             r = unsafe_div(unsafe_mul(r, sp), s) # r * sp / s
+        delta: uint256 = 0
         if sp >= s:
-            if (sp - s) * PRECISION / s <= MAX_POW_REL_ERR:
-                if _up:
-                    sp += sp * MAX_POW_REL_ERR / PRECISION
-                else:
-                    sp -= sp * MAX_POW_REL_ERR / PRECISION
-                return sp, r
+            delta = unsafe_sub(sp, s)
         else:
-            if (s - sp) * PRECISION / s <= MAX_POW_REL_ERR:
-                if _up:
-                    sp += sp * MAX_POW_REL_ERR / PRECISION
-                else:
-                    sp -= sp * MAX_POW_REL_ERR / PRECISION
-                return sp, r
+            delta = unsafe_sub(s, sp)
+
+        if delta * PRECISION / s <= MAX_POW_REL_ERR:
+            delta = sp * MAX_POW_REL_ERR / PRECISION
+            if _up:
+                sp += delta
+            else:
+                sp -= delta
+            return sp, r
         s = sp
 
     raise # dev: no convergence
@@ -1395,14 +1394,15 @@ def _calc_vb(
     y: uint256 = _y
     for _ in range(255):
         yp: uint256 = (y + b + _supply * q / PRECISION + c * q / self._pow_up(y, _wn) - b * q / PRECISION - _supply) * y / (q * y / PRECISION + y + b - _supply)
+        delta: uint256 = 0
         if yp >= y:
-            if (yp - y) * PRECISION / y <= MAX_POW_REL_ERR:
-                yp += yp * MAX_POW_REL_ERR / PRECISION
-                return yp
+            delta = yp - y
         else:
-            if (y - yp) * PRECISION / y <= MAX_POW_REL_ERR:
-                yp += yp * MAX_POW_REL_ERR / PRECISION
-                return yp
+            delta = y - yp
+ 
+        if delta * PRECISION / y <= MAX_POW_REL_ERR:
+            yp += yp * MAX_POW_REL_ERR / PRECISION
+            return yp
         y = yp
     
     raise # dev: no convergence
