@@ -707,6 +707,7 @@ def virtual_balance(_asset: uint256) -> uint256:
     return self.packed_vbs[_asset] & VB_MASK
 
 @external
+@view
 def rate(_asset: uint256) -> uint256:
     """
     @notice Get the rate of an asset
