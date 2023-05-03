@@ -119,9 +119,9 @@ def transfer(_to: address, _value: uint256) -> bool:
     @return True
     """
     assert _to != empty(address) and _to != self
-    assert _value > 0
-    self._update_account_shares(msg.sender, _value, DECREMENT)
-    self._update_account_shares(_to, _value, INCREMENT)
+    if _value > 0:
+        self._update_account_shares(msg.sender, _value, DECREMENT)
+        self._update_account_shares(_to, _value, INCREMENT)
     log Transfer(msg.sender, _to, _value)
     return True
 
@@ -135,10 +135,10 @@ def transferFrom(_from: address, _to: address, _value: uint256) -> bool:
     @return True
     """
     assert _to != empty(address) and _to != self
-    assert _value > 0
     self.allowance[_from][msg.sender] -= _value
-    self._update_account_shares(_from, _value, DECREMENT)
-    self._update_account_shares(_to, _value, INCREMENT)
+    if _value > 0:
+        self._update_account_shares(_from, _value, DECREMENT)
+        self._update_account_shares(_to, _value, INCREMENT)
     log Transfer(_from, _to, _value)
     return True
 

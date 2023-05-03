@@ -51,7 +51,6 @@ def transfer(_to: address, _value: uint256) -> bool:
     @return True
     """
     assert _to != empty(address) and _to != self
-    assert _value > 0
     self.balanceOf[msg.sender] -= _value
     self.balanceOf[_to] += _value
     log Transfer(msg.sender, _to, _value)
@@ -69,7 +68,6 @@ def transferFrom(_from: address, _to: address, _value: uint256) -> bool:
     @return True
     """
     assert _to != empty(address) and _to != self
-    assert _value > 0
     self.allowance[_from][msg.sender] -= _value
     self.balanceOf[_from] -= _value
     self.balanceOf[_to] += _value
