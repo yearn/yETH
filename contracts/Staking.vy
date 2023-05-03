@@ -10,12 +10,6 @@ from vyper.interfaces import ERC4626
 implements: ERC20
 implements: ERC4626
 
-struct Weight:
-    week: uint16
-    t: uint56
-    updated: uint56
-    shares: uint128
-
 updated: public(uint256)
 pending: uint256
 streaming: uint256
@@ -28,8 +22,8 @@ treasury: public(address)
 
 # voting
 half_time: public(uint256)
-previous_weights: HashMap[address, Weight]
-weights: HashMap[address, Weight]
+previous_packed_weights: HashMap[address, uint256]
+packed_weights: HashMap[address, uint256]
 
 # ERC20 state
 totalSupply: public(uint256)
@@ -85,6 +79,13 @@ MIN_FEE_RATE: constant(uint256) = 500
 MAX_FEE_RATE: constant(uint256) = 2_000
 INCREMENT: constant(bool) = True
 DECREMENT: constant(bool) = False
+WEEK_MASK: constant(uint256) = 2**16 - 1
+TIME_MASK: constant(uint256) = 2**56 - 1
+TIME_SHIFT: constant(int128) = -16
+UPDATED_MASK: constant(uint256) = 2**56 - 1
+UPDATED_SHIFT: constant(int128) = -72
+SHARES_MASK: constant(uint256) = 2**128 - 1
+SHARES_SHIFT: constant(int128) = -128
 
 @external
 def __init__(_asset: address):
@@ -412,16 +413,22 @@ def vote_weight(_account: address) -> uint256:
     @param _account Account to find get the vote weight for
     @return Vote weight
     """
-    week: uint16 = convert(block.timestamp / WEEK_LENGTH, uint16) - 1
-    weight: Weight = self.weights[_account]
-    if weight.week > week or weight.week == 0:
-        weight = self.previous_weights[_account]
-    
-    t: uint256 = convert(weight.t, uint256)
-    if weight.week > 0:
-        t += block.timestamp / WEEK_LENGTH * WEEK_LENGTH - convert(weight.updated, uint256)
+    current_week: uint256 = block.timestamp / WEEK_LENGTH - 1
 
-    return convert(weight.shares, uint256) * t / (t + self.half_time)
+    packed_weight: uint256 = self.packed_weights[_account]
+    week: uint256 = packed_weight & WEEK_MASK
+    if week > current_week or week == 0:
+        packed_weight = self.previous_packed_weights[_account]
+
+    t: uint256 = 0
+    updated: uint256 = 0 
+    shares: uint256 = 0
+    week, t, updated, shares = self._unpack_weight(packed_weight)
+    
+    if week > 0:
+        t += block.timestamp / WEEK_LENGTH * WEEK_LENGTH - updated
+
+    return shares * t / (t + self.half_time)
 
 @external
 @view
@@ -564,7 +571,7 @@ def _update_totals() -> (uint256, uint256):
         total_shares += new_fee_shares
         self.totalSupply = total_shares
         treasury: address = self.treasury
-        self.balanceOf[treasury] += new_fee_shares
+        self._update_account_shares(treasury, new_fee_shares, INCREMENT)
         log Transfer(empty(address), treasury, new_fee_shares)
 
     return total_shares, unlocked
@@ -680,31 +687,42 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int2
 def _update_account_shares(_account: address, _change: uint256, _add: bool):
     prev_shares: uint256 = self.balanceOf[_account]
     shares: uint256 = prev_shares
-    if _add:
+    if _add == INCREMENT:
         shares += _change
     else:
         shares -= _change
     self.balanceOf[_account] = shares
 
-    week: uint16 = convert(block.timestamp / WEEK_LENGTH, uint16)
-    weight: Weight = self.weights[_account]
-    if weight.week > 0 and week > weight.week:
-        self.previous_weights[_account] = weight
+    current_week: uint256 = block.timestamp / WEEK_LENGTH
+
+    week: uint256 = 0
+    t: uint256 = 0
+    updated: uint256 = 0 
+    last_shares: uint256 = 0
+    week, t, updated, last_shares = self._unpack_weight(self.packed_weights[_account])
+    if week > 0 and current_week > week:
+        self.previous_packed_weights[_account] = self.packed_weights[_account]
 
     if shares == 0:
-        weight.t = 0
-        weight.shares = 0
+        t = 0
+        last_shares = 0
 
-    t: uint256 = convert(weight.t, uint256)
-    if weight.shares > 0:
-        t += block.timestamp - convert(weight.updated, uint256)
-        if shares > convert(weight.shares, uint256):
+    if last_shares > 0:
+        t += block.timestamp - updated
+        if _add == INCREMENT:
             # amount has increased, calculate effective time that results in same weight
             half_time: uint256 = self.half_time
             t = prev_shares * t * half_time / (shares * (t + half_time) - prev_shares * t)
 
-    weight.week = week
-    weight.t = convert(t, uint56)
-    weight.updated = convert(block.timestamp, uint56)
-    weight.shares = convert(shares, uint128)
-    self.weights[_account] = weight
+    self.packed_weights[_account] = self._pack_weight(current_week, t, block.timestamp, shares)
+
+@internal
+@pure
+def _pack_weight(_week: uint256, _t: uint256, _updated: uint256, _shares: uint256) -> uint256:
+    assert _week <= WEEK_MASK and _t <= TIME_MASK and _updated <= UPDATED_MASK and _shares <= SHARES_MASK
+    return _week | shift(_t, -TIME_SHIFT) | shift(_updated, -UPDATED_SHIFT) | shift(_shares, -SHARES_SHIFT)
+
+@internal
+@pure
+def _unpack_weight(_packed: uint256) -> (uint256, uint256, uint256, uint256):
+    return _packed & WEEK_MASK, shift(_packed, TIME_SHIFT) & TIME_MASK, shift(_packed, UPDATED_SHIFT) & UPDATED_MASK, shift(_packed, SHARES_SHIFT)
