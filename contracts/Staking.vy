@@ -46,6 +46,15 @@ event Rewards:
 event SetFeeRate:
     fee_rate: uint256
 
+event SetHalfTime:
+    half_time: uint256
+
+event SetManagement:
+    management: indexed(address)
+
+event SetTreasury:
+    treasury: indexed(address)
+
 # ERC20 events
 event Transfer:
     sender: indexed(address)
@@ -462,6 +471,7 @@ def set_half_time(_half_time: uint256):
     assert msg.sender == self.management
     assert _half_time > 0
     self.half_time = _half_time
+    log SetHalfTime(_half_time)
 
 @external
 def set_management(_management: address):
@@ -471,6 +481,7 @@ def set_management(_management: address):
     """
     assert msg.sender == self.management
     self.management = _management
+    log SetManagement(_management)
 
 @external
 def set_treasury(_treasury: address):
@@ -480,6 +491,7 @@ def set_treasury(_treasury: address):
     """
     assert msg.sender == self.management or msg.sender == self.treasury
     self.treasury = _treasury
+    log SetTreasury(_treasury)
 
 # internal functions
 @internal
