@@ -817,7 +817,7 @@ def add_asset(
     assert self.supply > 0 # dev: pool empty
     assert not self.paused # dev: paused
 
-    assert _weight < PRECISION
+    assert _weight <= PRECISION/100
     assert _lower <= PRECISION
     assert _upper <= PRECISION
 
