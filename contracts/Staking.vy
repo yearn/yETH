@@ -511,6 +511,7 @@ def set_treasury(_treasury: address):
     @param _treasury The new treasury address
     """
     assert msg.sender == self.management or msg.sender == self.treasury
+    assert _treasury != empty(address)
     self.treasury = _treasury
     log SetTreasury(_treasury)
 

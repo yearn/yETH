@@ -203,6 +203,7 @@ def __init__(
     num_assets: uint256 = len(_assets)
     assert num_assets >= 2
     assert len(_rate_providers) == num_assets and len(_weights) == num_assets
+    assert _token != empty(address)
     assert _amplification > 0
 
     token = _token
@@ -1063,6 +1064,7 @@ def set_staking(_staking: address):
     @param _staking New staking address
     """
     assert msg.sender == self.management
+    assert _staking != empty(address)
     self.staking = _staking
     log SetStaking(_staking)
 
