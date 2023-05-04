@@ -815,7 +815,6 @@ def add_asset(
     assert _amplification > 0
     assert self.ramp_last_time == 0 # dev: ramp active
     assert self.supply > 0 # dev: pool empty
-    assert not self.paused # dev: paused
 
     assert _weight <= PRECISION/100
     assert _lower <= PRECISION
