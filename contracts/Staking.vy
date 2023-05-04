@@ -213,8 +213,10 @@ def convertToShares(_assets: uint256) -> uint256:
     total_shares: uint256 = 0
     total_assets: uint256 = 0
     total_shares, total_assets = self._get_totals()
-    if total_shares == 0 or total_assets == 0:
+    if total_shares == 0:
         return _assets
+    if total_assets == 0:
+        return 0
     return _assets * total_shares / total_assets
 
 @external
@@ -228,8 +230,10 @@ def convertToAssets(_shares: uint256) -> uint256:
     total_shares: uint256 = 0
     total_assets: uint256 = 0
     total_shares, total_assets = self._get_totals()
-    if total_shares == 0 or total_assets == 0:
+    if total_shares == 0:
         return _shares
+    if total_assets == 0:
+        return 0
     return _shares * total_assets / total_shares
 
 @external
