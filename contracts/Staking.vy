@@ -15,6 +15,7 @@ pending: uint256
 streaming: uint256
 unlocked: uint256
 management: public(address)
+pending_management: public(address)
 
 # fees
 performance_fee_rate: public(uint256)
@@ -48,6 +49,9 @@ event SetFeeRate:
 
 event SetHalfTime:
     half_time: uint256
+
+event PendingManagement:
+    management: indexed(address)
 
 event SetManagement:
     management: indexed(address)
@@ -102,6 +106,7 @@ def __init__(_asset: address):
     @notice Constructor
     @param _asset The underlying asset
     """
+    assert _asset != empty(address)
     asset = _asset
     self.updated = block.timestamp
     self.half_time = WEEK_LENGTH
@@ -480,12 +485,24 @@ def set_half_time(_half_time: uint256):
 @external
 def set_management(_management: address):
     """
-    @notice Set the management
-    @param _management The new management address
+    @notice Set the pending management address. Needs to be accepted
+    by that account separately to transfer management over
+    @param _management New pending management address
     """
     assert msg.sender == self.management
-    self.management = _management
-    log SetManagement(_management)
+    self.pending_management = _management
+    log PendingManagement(_management)
+
+@external
+def accept_management():
+    """
+    @notice Accept management role. Can only be called by account 
+    previously marked as pending management by current management
+    """
+    assert msg.sender == self.pending_management
+    self.pending_management = empty(address)
+    self.management = msg.sender
+    log SetManagement(msg.sender)
 
 @external
 def set_treasury(_treasury: address):

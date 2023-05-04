@@ -5,6 +5,7 @@ PRECISION = 1_000_000_000_000_000_000
 MAX = 2**256 - 1
 DAY_LENGTH = 24 * 60 * 60
 WEEK_LENGTH = 7 * DAY_LENGTH
+ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 
 @pytest.fixture
 def deployer(accounts):
@@ -322,3 +323,25 @@ def test_rescue(project, deployer, alice, asset, staking):
     # can rescue anything else
     staking.rescue(random, alice, sender=deployer)
     assert random.balanceOf(alice) == PRECISION
+
+def test_transfer_management(deployer, alice, bob, staking):
+    assert staking.management() == deployer
+    assert staking.pending_management() == ZERO_ADDRESS
+
+    # only current management can propose new management
+    with ape.reverts():
+        staking.set_management(alice, sender=alice)
+
+    # propose new management
+    staking.set_management(alice, sender=deployer)
+    assert staking.management() == deployer
+    assert staking.pending_management() == alice
+
+    # only proposed management can accept
+    with ape.reverts():
+        staking.accept_management(sender=bob)
+
+    # accept new management
+    staking.accept_management(sender=alice)
+    assert staking.management() == alice
+    assert staking.pending_management() == ZERO_ADDRESS
