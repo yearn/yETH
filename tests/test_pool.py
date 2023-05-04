@@ -4,6 +4,7 @@ import pytest
 
 PRECISION = 1_000_000_000_000_000_000
 MAX = 2**256 - 1
+ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 
 @pytest.fixture
 def deployer(accounts):
@@ -629,3 +630,29 @@ def test_skim(project, deployer, alice, token):
     assets[1].mint(pool, PRECISION, sender=deployer)
     pool.skim(1, alice, sender=deployer)
     assert assets[1].balanceOf(alice) == PRECISION - 1
+
+def test_transfer_management(project, deployer, alice, bob, token):
+    n = 4
+    assets, provider = deploy_assets(project, deployer, n)
+    weights = [PRECISION//n for _ in range(n)]
+    pool = project.Pool.deploy(token, calc_w_prod(weights) * 10, assets, [provider for _ in range(n)], weights, sender=deployer)
+    assert pool.management() == deployer
+    assert pool.pending_management() == ZERO_ADDRESS
+
+    # only current management can propose new management
+    with ape.reverts():
+        pool.set_management(alice, sender=alice)
+
+    # propose new management
+    pool.set_management(alice, sender=deployer)
+    assert pool.management() == deployer
+    assert pool.pending_management() == alice
+
+    # only proposed management can accept
+    with ape.reverts():
+        pool.accept_management(sender=bob)
+
+    # accept new management
+    pool.accept_management(sender=alice)
+    assert pool.management() == alice
+    assert pool.pending_management() == ZERO_ADDRESS

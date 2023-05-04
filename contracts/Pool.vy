@@ -26,6 +26,7 @@ assets: public(address[MAX_NUM_ASSETS])
 rate_providers: public(address[MAX_NUM_ASSETS])
 packed_vbs: uint256[MAX_NUM_ASSETS] # x_i = b_i r_i (96) | r_i (80) | w_i (20) | target w_i (20) | lower (20) | upper (20)
 management: public(address)
+pending_management: public(address)
 guardian: public(address)
 paused: public(bool)
 killed: public(bool)
@@ -109,6 +110,9 @@ event StopRamp: pass
 
 event SetStaking:
     staking: address
+
+event PendingManagement:
+    management: address
 
 event SetManagement:
     management: address
@@ -1065,12 +1069,24 @@ def set_staking(_staking: address):
 @external
 def set_management(_management: address):
     """
-    @notice Set the management address
-    @param _management New management address
+    @notice Set the pending management address. Needs to be accepted
+    by that account separately to transfer management over
+    @param _management New pending management address
     """
     assert msg.sender == self.management
-    self.management = _management
-    log SetManagement(_management)
+    self.pending_management = _management
+    log PendingManagement(_management)
+
+@external
+def accept_management():
+    """
+    @notice Accept management role. Can only be called by account 
+    previously marked as pending management by current management
+    """
+    assert msg.sender == self.pending_management
+    self.pending_management = empty(address)
+    self.management = msg.sender
+    log SetManagement(msg.sender)
 
 @external
 def set_guardian(_guardian: address):
