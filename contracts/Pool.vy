@@ -1353,6 +1353,7 @@ def _calc_supply(
     r: uint256 = _vb_prod # right: pi[m]
 
     for _ in range(255):
+        assert s > 0
         sp: uint256 = unsafe_div(unsafe_sub(l, unsafe_mul(s, r)), d) # D[m+1] = (l - s * r) / d
         # update product term pi[m+1] = (D[m+1]/D[m])^n pi[m]
         for i in range(MAX_NUM_ASSETS):
@@ -1365,8 +1366,8 @@ def _calc_supply(
         else:
             delta = unsafe_sub(s, sp)
 
-        if delta * PRECISION / s <= MAX_POW_REL_ERR:
-            delta = sp * MAX_POW_REL_ERR / PRECISION
+        if unsafe_div(unsafe_mul(delta, PRECISION), s) <= MAX_POW_REL_ERR:
+            delta = unsafe_div(unsafe_mul(sp, MAX_POW_REL_ERR), PRECISION)
             if _up:
                 sp += delta
             else:
@@ -1411,6 +1412,7 @@ def _calc_vb(
 
     y: uint256 = _y
     for _ in range(255):
+        assert y > 0
         yp: uint256 = (y + b + _supply * q / PRECISION + c * q / self._pow_up(y, _wn) - b * q / PRECISION - _supply) * y / (q * y / PRECISION + y + b - _supply)
         delta: uint256 = 0
         if yp >= y:
@@ -1418,8 +1420,8 @@ def _calc_vb(
         else:
             delta = y - yp
  
-        if delta * PRECISION / y <= MAX_POW_REL_ERR:
-            yp += yp * MAX_POW_REL_ERR / PRECISION
+        if unsafe_div(unsafe_mul(delta, PRECISION), y) <= MAX_POW_REL_ERR:
+            yp += unsafe_div(unsafe_mul(yp, MAX_POW_REL_ERR), PRECISION)
             return yp
         y = yp
     
