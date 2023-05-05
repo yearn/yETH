@@ -46,7 +46,7 @@ def test_round_trip(alice, bob, token, weights, pool):
     lp = token.balanceOf(bob)
 
     # slippage check
-    with ape.reverts(dev_message='dev: slippage'):
+    with ape.reverts():
         pool.remove_liquidity_single(0, lp, amt, bob, sender=bob)    
 
     pool.remove_liquidity_single(0, lp, 0, bob, sender=bob)

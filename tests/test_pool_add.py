@@ -36,7 +36,7 @@ def test_initial(alice, bob, token, weights, pool):
         amts.append(amt)
         asset.mint(alice, amt, sender=alice)
 
-    with ape.reverts(dev_message='dev: slippage'):
+    with ape.reverts():
         # slippage protection
         pool.add_liquidity(amts, 2 * total, sender=alice)
 

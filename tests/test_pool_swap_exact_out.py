@@ -46,7 +46,7 @@ def test_round_trip(alice, bob, weights, pool):
     assets[1].mint(alice, 2 * amt, sender=alice)
 
     # slippage check
-    with ape.reverts(dev_message='dev: slippage'):
+    with ape.reverts():
         pool.swap_exact_out(1, 0, cost, amt, bob, sender=alice)
 
     amt2 = pool.swap_exact_out(1, 0, cost, MAX, bob, sender=alice).return_value

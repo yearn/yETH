@@ -288,7 +288,7 @@ def swap(
     self._check_bands(prev_vb_y * PRECISION / prev_vb_sum, vb_y * PRECISION / vb_sum, packed_weight_y)
 
     dy: uint256 = (prev_vb_y - vb_y) * PRECISION / rate_y
-    assert dy >= _min_dy # dev: slippage
+    assert dy >= _min_dy, "slippage"
 
     if dx_fee > 0:
         # add fee to pool
@@ -373,7 +373,7 @@ def swap_exact_out(
     dx += dx_fee
     vb_x += dx_fee * rate_x / PRECISION
     vb_sum += vb_x
-    assert dx <= _max_dx # dev: slippage
+    assert dx <= _max_dx, "slippage"
 
     # check bands
     self._check_bands(prev_vb_x * PRECISION / prev_vb_sum, vb_x * PRECISION / vb_sum, packed_weight_x)
@@ -500,7 +500,7 @@ def add_liquidity(
     # mint LP tokens
     supply, vb_prod = self._calc_supply(num_assets, supply, self.amplification, vb_prod, vb_sum, prev_supply == 0)
     mint: uint256 = supply - prev_supply
-    assert mint > 0 and mint >= _min_lp_amount # dev: slippage
+    assert mint > 0 and mint >= _min_lp_amount, "slippage"
     PoolToken(token).mint(_receiver, mint)
     log AddLiquidity(msg.sender, _receiver, _amounts, mint)
 
@@ -562,7 +562,7 @@ def remove_liquidity(
         vb_sum = unsafe_add(vb_sum, vb)
 
         amount: uint256 = dvb * PRECISION / rate
-        assert amount >= _min_amounts[asset] # dev: slippage
+        assert amount >= _min_amounts[asset], "slippage"
         assert ERC20(self.assets[asset]).transfer(_receiver, amount, default_return_value=True)
 
     self.packed_pool_vb = self._pack_pool_vb(vb_prod, vb_sum)
@@ -620,7 +620,7 @@ def remove_liquidity_single(
     dvb -= fee
     vb += fee
     dx: uint256 = dvb * PRECISION / rate
-    assert dx > _min_amount # dev: slippage
+    assert dx > _min_amount, "slippage"
 
     # update variables
     self.packed_vbs[_asset] = self._pack_vb(vb, rate, packed_weight)
@@ -1115,7 +1115,7 @@ def _update_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uin
     @dev Will recalculate supply and mint/burn to staking contract if any weight or rate has updated
     @dev Will revert if any rate increases by more than 10%, unless called by management
     """
-    assert not self.paused # dev: paused
+    assert not self.paused, "paused"
     
     vb_prod: uint256 = 0
     vb_sum: uint256 = _vb_sum

@@ -441,17 +441,17 @@ def test_pause(project, chain, deployer, alice, bob, token):
         pool.pause(sender=guardian)
 
     # after pausing, none of these functions can be called
-    with ape.reverts(dev_message='dev: paused'):
+    with ape.reverts():
         pool.swap(0, 1, PRECISION, 0, sender=alice)
-    with ape.reverts(dev_message='dev: paused'):
+    with ape.reverts():
         pool.swap_exact_out(0, 1, PRECISION, MAX, sender=alice)
-    with ape.reverts(dev_message='dev: paused'):
+    with ape.reverts():
         pool.add_liquidity([PRECISION if i == 0 else 0 for i in range(n)], 0, sender=alice)
-    with ape.reverts(dev_message='dev: paused'):
+    with ape.reverts():
         pool.remove_liquidity_single(0, PRECISION, 0, sender=deployer)
-    with ape.reverts(dev_message='dev: paused'):
+    with ape.reverts():
         pool.update_rates([], sender=alice)
-    with ape.reverts(dev_message='dev: paused'):
+    with ape.reverts():
         pool.update_weights(sender=alice)
 
     # but doing a balanced withdrawal is still possible

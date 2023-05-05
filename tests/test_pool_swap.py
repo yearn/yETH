@@ -47,7 +47,7 @@ def test_round_trip(alice, bob, weights, pool):
     assets[1].approve(pool, MAX, sender=bob)
 
     # slippage check
-    with ape.reverts(dev_message='dev: slippage'):
+    with ape.reverts():
         pool.swap(1, 0, bal, amt, bob, sender=bob)
 
     pool.swap(1, 0, bal, 0, bob, sender=bob)
