@@ -515,10 +515,16 @@ def set_treasury(_treasury: address):
     self.treasury = _treasury
     log SetTreasury(_treasury)
 
-# internal functions
 @internal
 @view
 def _preview_deposit(_assets: uint256, _total_shares: uint256, _total_assets: uint256) -> uint256:
+    """
+    @notice Calculate amount of shares that will be minted on deposit of a specific amount of assets
+    @param _assets Amount of assets to deposit
+    @param _total_shares Amount of vault shares prior to deposit
+    @param _total_assets Amount of assets in vault prior to deposit
+    @return Amount of shares to be minted
+    """
     if _total_shares == 0:
         assert _assets >= MINIMUM_INITIAL_DEPOSIT # dev: minimum initial deposit size
         return _assets
@@ -529,6 +535,13 @@ def _preview_deposit(_assets: uint256, _total_shares: uint256, _total_assets: ui
 @internal
 @view
 def _preview_mint(_shares: uint256, _total_shares: uint256, _total_assets: uint256) -> uint256:
+    """
+    @notice Calculate amount of assets deposited to mint a specific amount of shares
+    @param _assets Amount of shares to mint
+    @param _total_shares Amount of vault shares prior to deposit
+    @param _total_assets Amount of assets in vault prior to deposit
+    @return Amount of assets to deposit
+    """
     if _total_shares == 0:
         assert _shares >= MINIMUM_INITIAL_DEPOSIT # dev: minimum initial deposit size
         return _shares
@@ -538,6 +551,12 @@ def _preview_mint(_shares: uint256, _total_shares: uint256, _total_assets: uint2
 
 @internal
 def _deposit(_assets: uint256, _shares: uint256, _receiver: address):
+    """
+    @notice Deposit assets and mint shares
+    @param _assets Amount of assets deposited
+    @param _shares Amount of shares minted
+    @param _receiver Receiver of minted shares
+    """
     self.unlocked += _assets
     self.totalSupply += _shares
     self._update_account_shares(_receiver, _shares, INCREMENT)
@@ -548,6 +567,13 @@ def _deposit(_assets: uint256, _shares: uint256, _receiver: address):
 @internal
 @view
 def _preview_withdraw(_assets: uint256, _total_shares: uint256, _total_assets: uint256) -> uint256:
+    """
+    @notice Calculate amount of shares that will be burned on withdrawal of a specific amount of assets
+    @param _assets Amount of assets to withdraw
+    @param _total_shares Amount of vault shares prior to withdrawal
+    @param _total_assets Amount of assets in vault prior to withdrawal
+    @return Amount of shares to be burned
+    """
     if _total_assets == 0:
         return 0
     return _assets * _total_shares / _total_assets
@@ -555,12 +581,26 @@ def _preview_withdraw(_assets: uint256, _total_shares: uint256, _total_assets: u
 @internal
 @view
 def _preview_redeem(_shares: uint256, _total_shares: uint256, _total_assets: uint256) -> uint256:
+    """
+    @notice Calculate amount of assets withdrawn to burn a specific amount of shares
+    @param _assets Amount of shares to burn
+    @param _total_shares Amount of vault shares prior to withdrawal
+    @param _total_assets Amount of assets in vault prior to withdrawal
+    @return Amount of assets to withdraw
+    """
     if _total_shares == 0:
         return 0
     return _shares * _total_assets / _total_shares
 
 @internal
 def _withdraw(_assets: uint256, _shares: uint256, _receiver: address, _owner: address):
+    """
+    @notice Withdraw assets and burn shares
+    @param _assets Amount of assets withdrawn
+    @param _shares Amount of shares burned
+    @param _receiver Receiver of withdrawn assets
+    @param _owner Account to burn shares from
+    """
     if _owner != msg.sender:
         self.allowance[_owner][msg.sender] -= _shares # dev: allowance
     
@@ -574,6 +614,10 @@ def _withdraw(_assets: uint256, _shares: uint256, _receiver: address, _owner: ad
 @internal
 @view
 def _get_totals() -> (uint256, uint256):
+    """
+    @notice Simulate an update to the buckets and return total number of shares and assets
+    @return Tuple with total number of shares and total number of assets
+    """
     pending: uint256 = 0
     streaming: uint256 = 0
     unlocked: uint256 = 0
@@ -584,6 +628,10 @@ def _get_totals() -> (uint256, uint256):
 
 @internal
 def _update_totals() -> (uint256, uint256):
+    """
+    @notice Update the buckets and return total number of shares and assets
+    @return Tuple with total number of shares and total number of assets
+    """
     current: uint256 = ERC20(asset).balanceOf(self)
     pending: uint256 = 0
     streaming: uint256 = 0
@@ -613,6 +661,17 @@ def _update_totals() -> (uint256, uint256):
 @internal
 @view
 def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int256):
+    """
+    @notice Calculate latest bucket amounts
+    @param _current Asset token balance of contract
+    @return Tuple with pending, streaming, unlocked amounts, new fee shares and balance changes since last update
+    @dev
+        New assets not from deposits during a week are added to the pending bucket.
+        Streaming bucket gradually streams into the unlocked bucket during the week.
+        At the end of the week, the pending bucket becomes the streaming bucket and a new pending bucket is created.
+        Slashings are taken from the pending, streaming and unlocked bucket, in that order.
+        User deposits and withdrawals only ever affect the unlocked bucket
+    """
     updated: uint256 = self.updated
     if updated == block.timestamp:
         return self.pending, self.streaming, self.unlocked, 0, 0
@@ -719,6 +778,16 @@ def _get_amounts(_current: uint256) -> (uint256, uint256, uint256, uint256, int2
 
 @internal
 def _update_account_shares(_account: address, _change: uint256, _add: bool):
+    """
+    @notice Increase or decrease user shares and vote weight accordingly
+    @param _account Account to update shares and vote weight for
+    @param _change Amount of shares to add or remove
+    @param _add True if shares are added, False if removed
+    @dev 
+        Vote weight is the same immediately before and immediately after a deposit.
+        A withdrawal reduces the vote weight proportionally
+    """
+    
     prev_shares: uint256 = self.balanceOf[_account]
     shares: uint256 = prev_shares
     if _add == INCREMENT:
@@ -753,10 +822,23 @@ def _update_account_shares(_account: address, _change: uint256, _add: bool):
 @internal
 @pure
 def _pack_weight(_week: uint256, _t: uint256, _updated: uint256, _shares: uint256) -> uint256:
+    """
+    @notice Pack voting weight parameters into a single word
+    @param _week Week number
+    @param _t Time staked
+    @param _updated Time last updated
+    @param _shares Amount of shares
+    @return Packed vote weight
+    """
     assert _week <= WEEK_MASK and _t <= TIME_MASK and _updated <= UPDATED_MASK and _shares <= SHARES_MASK
     return _week | shift(_t, -TIME_SHIFT) | shift(_updated, -UPDATED_SHIFT) | shift(_shares, -SHARES_SHIFT)
 
 @internal
 @pure
 def _unpack_weight(_packed: uint256) -> (uint256, uint256, uint256, uint256):
+    """
+    @notice Unpack voting weight into its parameters
+    @param _packed Packed voting weight
+    @return Tuple of week number, time staked, time last updated,amount of shares
+    """
     return _packed & WEEK_MASK, shift(_packed, TIME_SHIFT) & TIME_MASK, shift(_packed, UPDATED_SHIFT) & UPDATED_MASK, shift(_packed, SHARES_SHIFT)
