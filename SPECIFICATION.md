@@ -46,8 +46,11 @@
 
 ### Pause mode
 _Note_: this mode is to be enabled in the event of extreme market conditions or suspicious LSD minting behaviour or oracle activity.
+- During pause mode, no user may swap assets with the contract
 - During pause mode, no user may deposit assets into the contract
-- During pause mode, users may only withdraw assets in a balanced manner
+- During pause mode, users may only withdraw assets in a balanced manner, single sided withdrawals are not allowed
+- During pause mode, weights, rates and rate providers cannot be updated
+- During pause mode, a weight and/or amplification ramp cannot be started
 - During pause mode, management can trigger killed mode
 - During pause mode, management or guardian can undo pause mode to resume normal operation
 
