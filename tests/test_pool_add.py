@@ -181,7 +181,7 @@ def test_balanced_fee(chain, deployer, alice, bob, token, weights, pool, estimat
         bal_no_fee = token.balanceOf(bob)
     
     # set a fee
-    pool.set_swap_fee_rate(PRECISION // 10, sender=deployer) # 10%
+    pool.set_swap_fee_rate(PRECISION // 100, sender=deployer) # 1%
     exp = estimator.get_add_lp(amts2)
     pool.add_liquidity(amts2, 0, bob, sender=alice)
     bal = token.balanceOf(bob)
@@ -215,7 +215,7 @@ def test_fee(chain, deployer, alice, bob, token, weights, pool, estimator):
         bal_no_fee = token.balanceOf(bob)
     
     # set a fee
-    pool.set_swap_fee_rate(PRECISION // 10, sender=deployer) # 10%
+    pool.set_swap_fee_rate(PRECISION // 100, sender=deployer) # 1%
     exp = estimator.get_add_lp(amts)
     pool.add_liquidity(amts, 0, bob, sender=alice)
     bal = token.balanceOf(bob)
@@ -223,8 +223,8 @@ def test_fee(chain, deployer, alice, bob, token, weights, pool, estimator):
     
     # single sided deposit is charged half of the fee
     rate = abs(bal - bal_no_fee) / bal_no_fee
-    exp = 1/20
-    assert abs(rate - exp) / exp < 1e-4
+    exp = 1/200
+    assert abs(rate - exp) / exp < 3e-4
 
 def test_rate_update(chain, deployer, alice, bob, token, weights, pool, estimator):
     assets, provider, pool = pool

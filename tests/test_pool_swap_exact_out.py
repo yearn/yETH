@@ -116,7 +116,7 @@ def test_fee(chain, deployer, alice, bob, weights, pool, estimator):
         base = pool.swap_exact_out(0, 1, amt, MAX, bob, sender=alice).return_value
 
     # set a fee
-    fee_rate = PRECISION // 10
+    fee_rate = PRECISION // 100
     pool.set_swap_fee_rate(fee_rate, sender=deployer)
     exp = estimator.get_dx(0, 1, amt)
     res = pool.swap_exact_out(0, 1, amt, MAX, bob, sender=alice).return_value
@@ -126,7 +126,7 @@ def test_fee(chain, deployer, alice, bob, weights, pool, estimator):
 
     assert cost > base
     actual_rate = abs(cost - base) * PRECISION // cost
-    assert abs(actual_rate - fee_rate) / fee_rate <= 1e-17
+    assert abs(actual_rate - fee_rate) / fee_rate <= 1e-16
 
 def test_rate_update(chain, deployer, alice, bob, token, weights, pool, estimator):
     assets, provider, pool = pool

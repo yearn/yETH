@@ -164,7 +164,7 @@ def test_swap_fee(project, chain, deployer, alice, bob, token):
     chain.restore(id)
 
     # swap with fee
-    fee_rate = PRECISION * 3 // 1000 # 10%
+    fee_rate = PRECISION * 3 // 1000 # 0.3%
     pool.set_staking(deployer, sender=deployer)
     pool.set_swap_fee_rate(fee_rate, sender=deployer)
     
@@ -226,7 +226,7 @@ def test_swap_exact_out(project, deployer, alice, bob, token):
 
 def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     n = 4
-    fee_rate = PRECISION // 10 # 10%
+    fee_rate = PRECISION * 3 // 1000 # 0.3%
     assets, provider = deploy_assets(project, deployer, n)
     weights = [PRECISION//n for _ in range(n)]
     pool = project.Pool.deploy(token, calc_w_prod(weights) * 10, assets, [provider for _ in range(n)], weights, sender=deployer)
@@ -269,7 +269,7 @@ def test_swap_exact_out_fee(project, chain, deployer, alice, bob, token):
     assert fee_amt == exp_fee_amt
     
     staking_bal = token.balanceOf(deployer)
-    assert abs(staking_bal - exp_staking_bal) / exp_staking_bal < 2e-13
+    assert abs(staking_bal - exp_staking_bal) / exp_staking_bal < 3e-12
 
     # fee is charged on input token but paid in pool token, so amount is slightly less
     assert staking_bal < fee_amt

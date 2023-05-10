@@ -118,7 +118,7 @@ def test_fee(chain, deployer, alice, bob, weights, pool, estimator):
         base = pool.swap(0, 1, amt, 0, bob, sender=alice).return_value
 
     # set a fee
-    fee_rate = PRECISION // 10
+    fee_rate = PRECISION // 100
     pool.set_swap_fee_rate(fee_rate, sender=deployer)
     exp = estimator.get_dy(0, 1, amt)
     res = pool.swap(0, 1, amt, 0, bob, sender=alice).return_value

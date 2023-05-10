@@ -917,7 +917,7 @@ def set_swap_fee_rate(_fee_rate: uint256):
     @param _fee_rate New swap fee rate (in 18 decimals)
     """
     assert msg.sender == self.management
-    assert _fee_rate <= PRECISION
+    assert _fee_rate <= PRECISION / 100
     self.swap_fee_rate = _fee_rate
     log SetSwapFeeRate(_fee_rate)
 
