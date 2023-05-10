@@ -56,8 +56,8 @@ _Note_: this mode is to be enabled in the event of extreme market conditions or 
 
 ### Killed mode
 _Note:_ this mode is to be activated in the event of a LSD depeg, such as a mint bug or a compromised oracle or a critical bug in the protocol.
-- During killed mode, no user may deposit assets into the contract
-- During killed mode, users may only withdraw assets in a balanced manner
+- Killed mode may only be activated during pause mode
+- During killed mode, pause mode may not be undone
 - There is no way to undo killed mode
 
 ## LP token contract specification (yETH)
