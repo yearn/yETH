@@ -329,7 +329,10 @@ def maxWithdraw(_owner: address) -> uint256:
     @param _owner Account
     @return Maximum amount the account is allowed to withdraw
     """
-    return max_value(uint256)
+    total_shares: uint256 = 0
+    total_assets: uint256 = 0
+    total_shares, total_assets = self._get_totals()
+    return self._preview_redeem(self.balanceOf[_owner], total_shares, total_assets)
 
 @external
 @view
@@ -370,7 +373,7 @@ def maxRedeem(_owner: address) -> uint256:
     @param _owner Account
     @return Maximum amount the account is allowed to redeem
     """
-    return max_value(uint256)
+    return self.balanceOf[_owner]
 
 @external
 @view
