@@ -373,8 +373,12 @@ def test_add_asset(project, deployer, alice, token):
         asset.approve(pool, MAX, sender=deployer)
         asset.mint(deployer, amts[i], sender=deployer)
     pool.add_liquidity(amts[:n], 0, alice, sender=deployer)
-    pool.add_asset(assets[n], provider, PRECISION//100, PRECISION, PRECISION, amts[n], amplification, alice, sender=deployer)
+    pool.add_asset(assets[n], provider, PRECISION//100, PRECISION, PRECISION, amts[n], amplification, 0, alice, sender=deployer)
     assert assets[n].balanceOf(pool) == amts[n]
+    s = 0
+    for i in range(n+1):
+        s += pool.weight(i)[0]
+    assert s == PRECISION
 
     vb_sum2, vb_prod2 = pool.vb_prod_sum()
     supply2 = pool.supply()

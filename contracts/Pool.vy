@@ -796,6 +796,7 @@ def add_asset(
     _upper: uint256, 
     _amount: uint256, 
     _amplification: uint256,
+    _min_lp_amount: uint256,
     _receiver: address = msg.sender
 ):
     """
@@ -821,7 +822,7 @@ def add_asset(
     assert self.ramp_last_time == 0 # dev: ramp active
     assert self.supply > 0 # dev: pool empty
 
-    assert _weight <= PRECISION/100
+    assert _weight > 0 and _weight <= PRECISION/100
     assert _lower <= PRECISION
     assert _upper <= PRECISION
 
@@ -840,7 +841,7 @@ def add_asset(
         assert self.assets[i] != _asset # dev: asset already part of pool
         vb, rate, packed_weight = self._unpack_vb(self.packed_vbs[i])
         prev_weight, target, lower, upper = self._unpack_weight(packed_weight)
-        packed_weight = self._pack_weight(prev_weight - prev_weight * _weight / PRECISION, target, lower, upper)
+        packed_weight = self._pack_weight(unsafe_sub(prev_weight, unsafe_div(unsafe_mul(prev_weight, _weight), PRECISION)), target, lower, upper)
         self.packed_vbs[i] = self._pack_vb(vb, rate, packed_weight)
     
     assert ERC20Ext(_asset).decimals() == 18
@@ -871,7 +872,10 @@ def add_asset(
     self.packed_pool_vb = self._pack_pool_vb(vb_prod, vb_sum)
 
     assert ERC20(_asset).transferFrom(msg.sender, self, _amount, default_return_value=True)
-    PoolToken(token).mint(_receiver, supply - prev_supply)
+    assert supply > prev_supply
+    lp_amount: uint256 = unsafe_sub(supply, prev_supply)
+    assert lp_amount >= _min_lp_amount
+    PoolToken(token).mint(_receiver, lp_amount)
     log AddAsset(prev_num_assets, _asset, _rate_provider, rate, _weight, _amount)
 
 @external
