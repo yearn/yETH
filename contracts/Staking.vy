@@ -158,6 +158,7 @@ def approve(_spender: address, _value: uint256) -> bool:
     @param _value Amount that the spender is allowed to transfer
     @return Flag indicating whether the approval was successful
     """
+    assert _spender != empty(address)
     self.allowance[msg.sender][_spender] = _value
     log Approval(msg.sender, _spender, _value)
     return True
@@ -173,6 +174,7 @@ def increaseAllowance(_spender: address, _value: uint256) -> bool:
     @param _value The amount of tokens to increase the allowance by
     @return True
     """
+    assert _spender != empty(address)
     allowance: uint256 = self.allowance[msg.sender][_spender] + _value
     self.allowance[msg.sender][_spender] = allowance
     log Approval(msg.sender, _spender, allowance)
@@ -189,7 +191,12 @@ def decreaseAllowance(_spender: address, _value: uint256) -> bool:
     @param _value The amount of tokens to increase the allowance by
     @return True
     """
-    allowance: uint256 = self.allowance[msg.sender][_spender] - _value
+    assert _spender != empty(address)
+    allowance: uint256 = self.allowance[msg.sender][_spender]
+    if _value > allowance:
+        allowance = 0
+    else:
+        allowance -= _value
     self.allowance[msg.sender][_spender] = allowance
     log Approval(msg.sender, _spender, allowance)
     return True
