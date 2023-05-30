@@ -438,7 +438,7 @@ def vote_weight(_account: address) -> uint256:
 
     packed_weight: uint256 = self.packed_weights[_account]
     week: uint256 = packed_weight & WEEK_MASK
-    if week > current_week or week == 0:
+    if week > current_week:
         packed_weight = self.previous_packed_weights[_account]
 
     t: uint256 = 0
