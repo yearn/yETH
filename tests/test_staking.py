@@ -308,6 +308,22 @@ def test_withdraw_no_vote_weight(chain, alice, bob, asset, staking):
     chain.mine()
     assert staking.vote_weight(bob) == 0
 
+def test_withdraw_dust(alice, asset, staking):
+    asset.mint(alice, PRECISION, sender=alice)
+    asset.approve(staking, MAX, sender=alice)
+    staking.deposit(PRECISION, sender=alice)
+    with ape.reverts():
+        staking.withdraw(PRECISION - 1, sender=alice)
+    staking.withdraw(PRECISION, sender=alice)
+
+def test_redeem_dust(alice, asset, staking):
+    asset.mint(alice, PRECISION, sender=alice)
+    asset.approve(staking, MAX, sender=alice)
+    staking.deposit(PRECISION, sender=alice)
+    with ape.reverts():
+        staking.redeem(PRECISION - 1, sender=alice)
+    staking.redeem(PRECISION, sender=alice)
+
 def test_rescue(project, deployer, alice, asset, staking):
     asset.mint(alice, PRECISION, sender=alice)
     asset.approve(staking, MAX, sender=alice)

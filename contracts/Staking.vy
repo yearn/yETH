@@ -608,8 +608,12 @@ def _withdraw(_assets: uint256, _shares: uint256, _receiver: address, _owner: ad
         self.allowance[_owner][msg.sender] -= _shares # dev: allowance
     
     self.unlocked -= _assets
-    self.totalSupply -= _shares
+    total_shares: uint256 = self.totalSupply - _shares
+    self.totalSupply = total_shares
     self._update_account_shares(_owner, _shares, DECREMENT)
+
+    if total_shares < MINIMUM_INITIAL_DEPOSIT:
+        assert total_shares == 0
 
     assert ERC20(asset).transfer(_receiver, _assets, default_return_value=True)
     log Withdraw(msg.sender, _receiver, _owner, _assets, _shares)
