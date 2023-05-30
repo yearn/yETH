@@ -188,7 +188,7 @@ def decreaseAllowance(_spender: address, _value: uint256) -> bool:
         transaction ordering.
         See https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
     @param _spender Account that is allowed to spend
-    @param _value The amount of tokens to increase the allowance by
+    @param _value The amount of tokens to decrease the allowance by
     @return True
     """
     assert _spender != empty(address)
