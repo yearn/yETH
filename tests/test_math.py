@@ -52,21 +52,21 @@ def test_exp(project, accounts):
         x = random.randrange(0, E18)
         a = int(exp(mpf(x) / E18) * E18)
         b = math.exponent(x)
-        e = abs(b // MAX_REL_ERR)
+        e = abs((b * MAX_REL_ERR - 1) // E18 + 1)
         assert abs(a - b) <= e
 
     for _ in range(N_ITER):
         x = random.randrange(E18, 10 * E18)
         a = int(exp(mpf(x) / E18) * E18)
         b = math.exponent(x)
-        e = abs(b // MAX_REL_ERR)
+        e = abs((b * MAX_REL_ERR - 1) // E18 + 1)
         assert abs(a - b) <= e
 
     for _ in range(N_ITER):
         x = random.randrange(10 * E18, 100 * E18)
         a = int(exp(mpf(x) / E18) * E18)
         b = math.exponent(x)
-        e = abs(b // MAX_REL_ERR)
+        e = abs((b * MAX_REL_ERR - 1) // E18 + 1)
         assert abs(a - b) <= e
 
 def test_pow(project, accounts):
