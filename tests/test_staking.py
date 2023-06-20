@@ -316,6 +316,25 @@ def test_withdraw_dust(alice, asset, staking):
         staking.withdraw(PRECISION - 1, sender=alice)
     staking.withdraw(PRECISION, sender=alice)
 
+def test_max_withdraw_dust(alice, bob, asset, staking):
+    threshold = 1_000_000_000_000_000
+    asset.mint(alice, 2 * threshold, sender=alice)
+    asset.approve(staking, MAX, sender=alice)
+    assert staking.maxWithdraw(alice) == 0
+    staking.deposit(threshold, sender=alice)
+    assert staking.maxWithdraw(alice) == threshold
+    assert staking.maxWithdraw(bob) == 0
+    staking.deposit(threshold * 7 // 10, bob, sender=alice)
+    assert staking.maxWithdraw(alice) == threshold * 7 // 10
+    assert staking.maxWithdraw(bob) == threshold * 7 // 10
+    staking.withdraw(threshold * 3 // 10, sender=alice)
+    assert staking.maxWithdraw(alice) == threshold * 4 // 10
+    assert staking.maxWithdraw(bob) == threshold * 4 // 10
+    staking.transfer(alice, threshold * 7 // 10, sender=bob)
+    assert staking.maxWithdraw(alice) == threshold * 14 // 10
+    assert staking.maxWithdraw(bob) == 0
+    staking.withdraw(threshold * 14 // 10, sender=alice)
+
 def test_redeem_dust(alice, asset, staking):
     asset.mint(alice, PRECISION, sender=alice)
     asset.approve(staking, MAX, sender=alice)
@@ -323,6 +342,25 @@ def test_redeem_dust(alice, asset, staking):
     with ape.reverts():
         staking.redeem(PRECISION - 1, sender=alice)
     staking.redeem(PRECISION, sender=alice)
+
+def test_max_redeem_dust(alice, bob, asset, staking):
+    threshold = 1_000_000_000_000_000
+    asset.mint(alice, 2 * threshold, sender=alice)
+    asset.approve(staking, MAX, sender=alice)
+    assert staking.maxRedeem(alice) == 0
+    staking.deposit(threshold, sender=alice)
+    assert staking.maxRedeem(alice) == threshold
+    assert staking.maxRedeem(bob) == 0
+    staking.deposit(threshold * 7 // 10, bob, sender=alice)
+    assert staking.maxRedeem(alice) == threshold * 7 // 10
+    assert staking.maxRedeem(bob) == threshold * 7 // 10
+    staking.redeem(threshold * 3 // 10, sender=alice)
+    assert staking.maxRedeem(alice) == threshold * 4 // 10
+    assert staking.maxRedeem(bob) == threshold * 4 // 10
+    staking.transfer(alice, threshold * 7 // 10, sender=bob)
+    assert staking.maxRedeem(alice) == threshold * 14 // 10
+    assert staking.maxRedeem(bob) == 0
+    staking.redeem(threshold * 14 // 10, sender=alice)
 
 def test_rescue(project, deployer, alice, asset, staking):
     asset.mint(alice, PRECISION, sender=alice)
