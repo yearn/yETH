@@ -586,6 +586,7 @@ def _deposit(_assets: uint256, _shares: uint256, _receiver: address):
     
     assert ERC20(asset).transferFrom(msg.sender, self, _assets, default_return_value=True)
     log Deposit(msg.sender, _receiver, _assets, _shares)
+    log Transfer(empty(address), _receiver, _shares)
 
 @internal
 @view
@@ -636,6 +637,7 @@ def _withdraw(_assets: uint256, _shares: uint256, _receiver: address, _owner: ad
         assert total_shares == 0
 
     assert ERC20(asset).transfer(_receiver, _assets, default_return_value=True)
+    log Transfer(_owner, empty(address), _shares)
     log Withdraw(msg.sender, _receiver, _owner, _assets, _shares)
 
 @internal
