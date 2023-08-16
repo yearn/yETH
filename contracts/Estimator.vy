@@ -357,6 +357,25 @@ def get_remove_single_lp(_asset: uint256, _lp_amount: uint256) -> uint256:
 
     return dx
 
+@external
+@view
+def get_vb(_amounts: DynArray[uint256, MAX_NUM_ASSETS]) -> uint256:
+    num_assets: uint256 = pool.num_assets()
+    assert len(_amounts) == num_assets
+
+    vb: uint256 = 0
+    for asset in range(MAX_NUM_ASSETS):
+        if asset == num_assets:
+            break
+        amount: uint256 = _amounts[asset]
+        if amount == 0:
+            continue
+        provider: address = pool.rate_providers(asset)
+        rate: uint256 = RateProvider(provider).rate(pool.assets(asset))
+        vb += amount * rate / PRECISION
+
+    return vb
+
 @internal
 @view
 def _get_rates(_assets: uint256, _vb_prod: uint256, _vb_sum: uint256) -> (uint256, uint256, uint256, uint256, DynArray[uint256, MAX_NUM_ASSETS], DynArray[uint256, MAX_NUM_ASSETS]):

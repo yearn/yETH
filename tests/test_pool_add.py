@@ -74,6 +74,7 @@ def test_multiple(alice, bob, token, weights, pool, estimator):
     bal = token.balanceOf(bob)
     assert bal == ret
     assert bal == exp
+    assert abs(estimator.get_vb(amts2) - total2) <= n
 
     # rounding is in favor of pool
     assert bal < total2
