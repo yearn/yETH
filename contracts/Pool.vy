@@ -329,8 +329,8 @@ def swap_exact_out(
     @notice Swap one pool asset for another, with a fixed output amount
     @param _i Index of the input asset
     @param _j Index of the output asset
-    @param _dy Amount of input asset to send
-    @param _max_dx Maximum amount of output asset to take from caller
+    @param _dy Amount of output asset to send
+    @param _max_dx Maximum amount of input asset to take from caller
     @param _receiver Account to receive the output asset
     @return The amount of input asset taken
     """
