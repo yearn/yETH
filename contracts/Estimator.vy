@@ -492,7 +492,6 @@ def _check_bands(_prev_ratio: uint256, _ratio: uint256, _packed_weight: uint256)
         limit = unsafe_sub(weight, limit)
     if _ratio < limit:
         assert _ratio > _prev_ratio # dev: ratio below lower band
-        return
 
     # upper limit check
     limit = min(unsafe_add(weight, unsafe_mul(shift(_packed_weight, UPPER_BAND_SHIFT), WEIGHT_SCALE)), PRECISION)

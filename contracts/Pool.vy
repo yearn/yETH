@@ -2,7 +2,7 @@
 """
 @title yETH weighted stableswap pool
 @author 0xkorin, Yearn Finance
-@license Copyright (c) Yearn Finance, 2023 - all rights reserved
+@license GNU AGPLv3
 """
 
 from vyper.interfaces import ERC20
