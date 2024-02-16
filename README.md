@@ -1,6 +1,6 @@
 # yETH contracts
 
-Based on the weighted stableswap invariant, as derived in the [whitepaper](./whitepaper/whitepaper.pdf).
+Based on the weighted stableswap invariant, as derived in the [whitepaper](./whitepaper/derivation.pdf).
 Pool and staking contract follow [specification](./SPECIFICATION.md).
 
 ### Install dependencies
